@@ -53,10 +53,6 @@ The script automatically generates a 3D surface plot to visualize the aerodynami
 
 ![CL_Matrix](https://github.com/user-attachments/assets/185d4607-3871-4d78-a0a8-11b9ca7c7630)
 
-## 🛠️ Requirements
-* MATLAB (R2020b or later recommended)
-* Standard MATLAB functions (readtable, surf, reshape)
-
 ## ✍️ Author
 
 **Kıvanç Apaydın** – Aerospace Engineer  
