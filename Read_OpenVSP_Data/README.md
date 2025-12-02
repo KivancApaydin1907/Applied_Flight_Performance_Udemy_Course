@@ -55,4 +55,9 @@ The script automatically generates a 3D surface plot to visualize the aerodynami
 
 🛠️ Requirements
 MATLAB (R2020b or later recommended)
+Standard MATLAB functions (readtable, surf, reshape)
+
+## ✍️ Author
+
+**Kıvanç Apaydın** – Aerospace Engineer  
 
