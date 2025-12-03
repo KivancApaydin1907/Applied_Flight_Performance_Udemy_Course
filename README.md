@@ -40,10 +40,27 @@ OpenVSP (Only if you intend to generate your own aerodynamic data).
 ## 🤝 Contributing & Support
 If you encounter any bugs in the code or have suggestions for optimization, please open an Issue or submit a Pull Request. For specific course questions, please use the Q&A section on Udemy.
 
+---
+
+## 🚧 Project Status & Disclaimer
+
+**This repository is currently under active development.**
+
+Please note that the Udemy course associated with this repository is being recorded and prepared simultaneously. As a result:
+* New scripts, data files, and modules are **uploaded incrementally** as they are finalized.
+* Some folders might be empty or contain placeholder files temporarily.
+* The code structure may undergo minor refactoring for optimization.
+
+Feel free to **⭐ Star** or **👁️ Watch** the repository to get notified about the latest updates and module releases!
+
+---
+
 ## 📝 License
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## ✍️ Author
 
 **Kıvanç Apaydın** – Aerospace Engineer  
+
+
 
