@@ -48,9 +48,9 @@ Calibrate_OpenVSP_Data/
 │
 ├── Curve_Corrections_All_CL.m    # Main Code
 ├── mach04.mat                    # Experimental CL data at Mach Number 0.4
+├── T38_Aero_Data.mat             # Struct stores aerodynamic data
 ├── T38_OpenVSP_CFD_Results.txt   # Numerical OpenVSP Data
-├── README.md                     # Project Documentation
-└── .gitignore                    # MATLAB & System ignores
+└── README.md                     # Project Documentation
 ```
 ## ✍️ Author
 
