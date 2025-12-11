@@ -58,7 +58,7 @@ Feel free to **⭐ Star** or **👁️ Watch** the repository to get notified ab
 ## 📝 License
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## ✍️ Author
+## 👨‍💻 Author
 
 **Kıvanç Apaydın** – Aerospace Engineer  
 
