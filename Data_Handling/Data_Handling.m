@@ -13,6 +13,7 @@ if isfile(data_filename)
     load(data_filename);
     fprintf('Existing database loaded: %s. Appending Drag data...\n', data_filename);
 else
+    % If the file doesn't exist, initialize a new structure to avoid errors later
     T38_Aerodynamics = struct();
     warning('No existing database found. Creating a new structure.');
 end
@@ -22,7 +23,9 @@ end
 % List of raw data files (assumed to be in the path)
 file_list = {'CL035.mat', 'CL04.mat', 'CL05.mat', 'CL06.mat', 'CL07.mat'};
 legend_labels = {'CL <= 0.35', 'CL = 0.4', 'CL = 0.5', 'CL = 0.6', 'CL = 0.7'};
-raw_data = cell(1, length(file_list)); % Storage for raw arrays
+% Pre-allocate a cell array to store raw matrices. 
+% We use a 'cell array' because raw matrices might have different row counts.
+raw_data = cell(1, length(file_list)); 
 
 figure('Name', 'K Factor Raw Data Visualization', 'Color', 'w');
 hold on; grid on; grid minor;
@@ -33,13 +36,15 @@ ylabel('K Factor'); % Typo fixed here
 % Load and plot in a loop 
 for i = 1:length(file_list)
     if isfile(file_list{i})
+        % Load file into a temporary structure
         temp = load(file_list{i});
-        % Assuming the variable inside .mat has the same name as the filename (minus .mat)
+        % Dynamic Field Access:
+        % The variable name inside the .mat file matches the filename (minus .mat).
+        % We construct the name dynamically to extract the data.
         varName = file_list{i}(1:end-4); 
         raw_data{i} = temp.(varName); 
         
-        plot(raw_data{i}(:,1), raw_data{i}(:,2), 'LineWidth', 1.5, ...
-             'DisplayName', legend_labels{i});
+        plot(raw_data{i}(:,1), raw_data{i}(:,2), 'LineWidth', 1.5, 'DisplayName', legend_labels{i});
     else
         warning('File %s not found. Skipping...', file_list{i});
     end
@@ -55,6 +60,9 @@ Mach_common = 0:0.01:1.2; % Common Mach Grid
 CL_vector   = [0.35; 0.4; 0.5; 0.6; 0.7]; 
 
 % Helper Function: Linear Interpolation + Nearest Extrapolation
+% 1. interp1(..., 'linear', NaN): Interpolates linearly inside the range, returns NaN outside.
+% 2. fillmissing(..., 'nearest'): Replaces those NaNs with the nearest valid value.
+% This effectively creates a "flat extrapolation" preventing wild oscillations.
 safe_interp = @(x, y, xq) fillmissing(interp1(x, y, xq, 'linear', NaN), 'nearest');
 
 % Pre-allocate matrix for speed
@@ -64,8 +72,10 @@ lookup_drag_due_to_lift = zeros(n_cl, n_mach);
 
 % Process each dataset into the matrix rows
 for i = 1:n_cl
-    % Note: raw_data corresponds to CL_vector order
-    if ~isempty(raw_data{i})
+    % Guard Clause: Check if the raw data actually exists for this index.
+    % "~isempty" means "if not empty". This prevents crashing if a file was missing.
+    if ~isempty(raw_data{i}) 
+        % Apply the safe interpolation and store in the i-th row
         lookup_drag_due_to_lift(i, :) = safe_interp(raw_data{i}(:, 1), raw_data{i}(:, 2), Mach_common);
     end
 end
