@@ -15,14 +15,23 @@ Developed as part of the **"Applied Flight Performance Analysis"** Udemy course,
 
 ---
 
-## 🔧 Methodology & Physics
-The simulation utilizes a **"Mass Addition" method** combined with semi-empirical corrections to account for real-world losses. Unlike ideal cycle analysis, this model includes:
+## 🔧 Technical Methodology
+This code implements a **0-D Gas Turbine Cycle Analysis** based on the Brayton Cycle. Unlike simple ideal cycle analysis, this model incorporates **semi-empirical corrections** to reflect real-world engine behavior.
 
-* **Variable Gas Properties:** Specific heat ($C_p$) and Gamma ($\gamma$) change between cold (compressor) and hot (turbine/AB) sections.
-* **Ram Recovery:** Mil-Spec inlet pressure recovery based on Mach number.
-* **Afterburner Losses:** Accounting for flame holder drag ($\pi_{ab} \approx 0.92$).
-* **Nozzle Friction:** Implementation of a Velocity Coefficient ($C_v$) to correct ideal exit velocity.
-* **Cooling Air Mixing:** Simulates the momentum loss of bypass cooling air re-entering the exhaust stream.
+### 1. Thermodynamic Model
+The simulation iterates through engine stations (0 to 9) calculating stagnation properties ($P_t, T_t$). Key physics features include:
+* **Variable Gas Properties:** Specific heat ($C_p$) and Gamma ($\gamma$) are adjusted between the Cold Section (Compressor) and Hot Section (Turbine/AB) to account for temperature effects.
+* **Ram Recovery:** Inlet pressure recovery is modeled as a function of Mach number (Mil-Spec E-5007D approximation).
+* **Choked Flow Logic:** The Convergent-Divergent (Con-Di) nozzle logic automatically switches between choked and unchoked regimes based on the nozzle pressure ratio (NPR).
+
+### 2. "Mass Addition" & Loss Modeling
+To simulate the complex effects of turbine cooling and afterburner flows without full CFD, the model uses a "Mass Addition" approach with calibrated loss factors:
+
+* **Afterburner Drag ($\pi_{ab}$):** Accounts for the total pressure loss (~8%) caused by flame holders and spray bars in the jet pipe.
+* **Nozzle Velocity Coefficient ($C_v$):** Corrects the ideal exit velocity to account for friction losses in the nozzle liner ($C_v \approx 0.98$).
+* **Cooling Air Mixing:** Bleed air (10%) bypasses the core and re-enters at the nozzle. A **Mixing Efficiency (50%)** factor is applied to penalize the momentum contribution of this low-energy cooling flow.
+
+---
 
 ### Key Simulation Parameters
 | Parameter | Value | Description |
@@ -43,6 +52,13 @@ The MATLAB code was fine-tuned to match the design point data provided by GasTur
 * **Deviation:** ~3.2%
 
 > *The simplified model successfully captures the "Off-Design" behavior, including the effects of altitude on air density and Mach number on ram pressure rise.*
+
+## ⚠️ Limitations
+0-D Analysis: Flow is assumed to be one-dimensional; radial profiles are ignored.
+
+Map Scaling: Component maps (Compressor/Turbine maps) are not used; constant component efficiencies are assumed for the scope of this course.
+
+Chemical Kinetics: Combustion is modeled via energy balance (LHV), not chemical reaction rates.
 
 ---
 
