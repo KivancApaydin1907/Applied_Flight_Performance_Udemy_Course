@@ -1,91 +1,114 @@
+<div align="center">
+
 # Applied Flight Performance: Analysis with MATLAB & OpenVSP
 
-![Project Status](https://img.shields.io/badge/Status-Active_Development-brightgreen)
-![MATLAB](https://img.shields.io/badge/MATLAB-R2020b%2B-blue)
-![OpenVSP](https://img.shields.io/badge/OpenVSP-3.30%2B-orange)
-![Course](https://img.shields.io/badge/Udemy-Official_Course-red)
+![MATLAB](https://img.shields.io/badge/MATLAB-R2025b-blue?logo=mathworks)
+![Aerospace](https://img.shields.io/badge/Domain-Aerospace_Engineering-orange)
+![Subject](https://img.shields.io/badge/Subject-Flight_Dynamics_&_Control-purple)
+![CourseStatus](https://img.shields.io/badge/Udemy_Course-In_Development-yellow)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-> **"Build your own Physics Engine. Design your own Mission."**
+> **"A complete, physics-based flight simulation framework bridging the gap between theoretical aerodynamics and practical mission analysis."**
 
-Welcome to the official repository for the **"Applied Flight Performance: Analysis with MATLAB & OpenVSP"** course. 
+[**View Course Roadmap**](#-udemy-course--development-status) | [**Explore Modules**](#-repository-architecture) | [**Report Bug**](../../issues)
 
-This project goes beyond standard textbook theory. We simulate a complete real-world engineering workflow: extracting aerodynamic data from **OpenVSP**, modeling the **J85-GE-5** turbojet engine from scratch, and building a custom **6-DOF (reduced to 3-DOF) Physics Engine** to simulate the entire mission profile of the **Northrop T-38 Talon**—from brake release to landing flare.
+</div>
 
 ---
 
-## 🚀 Project Overview & Capabilities
+## ✈️ Project Overview
 
-This repository houses a modular flight dynamics framework capable of simulating a **Full Mission Profile**. Unlike simple point-mass estimations, this project implements:
+This repository houses the source code, datasets, and simulation scripts for the upcoming **"Applied Flight Performance"** engineering course.
 
-* **Custom Physics Engine:** A non-linear equation of motion solver written in MATLAB (using `ode45`).
-* **Propulsion Modeling:** Dual-approach engine modeling using both **GasTurb** data and a custom **Parametric Cycle Analysis (PCA)** written in MATLAB ("White Box" model).
-* **Automatic Flight Control:** Implementation of **PID Controllers** for pitch-hold, altitude-hold, and velocity-hold modes during Climb and Cruise.
-* **Complex Maneuvers:** Logic for ground roll, rotation ($V_R$), lift-off, and the mathematical modeling of the **Landing Flare**.
+Using the **Northrop T-38 Talon** as a primary case study, this project demonstrates how to build a high-fidelity **3-DOF Flight Simulator** from scratch. Unlike standard textbook examples, this framework integrates real-world complexities:
+* **Non-Linear Aerodynamics:** Calibrated CFD data (OpenVSP) against wind tunnel experiments.
+* **Dynamic Propulsion:** J85-GE-5 turbojet performance maps varying with Altitude and Mach.
+* **Adaptive Autopilot:** A gain-scheduled flight control system that handles 11 distinct mission phases.
 
-## 📚 Curriculum & Technical Workflow
+---
 
-The codebase is structured to mirror the progression of the course modules:
+## 🚧 Udemy Course & Development Status
 
-### Phase 1: The Digital Twin (Data Generation)
-Before simulation, we build the aircraft digitally.
-* **Aerodynamics (OpenVSP):** Generating $C_L$, $C_D$, $C_m$ lookup tables and analyzing stability derivatives ($C_{m_{\delta}}$, $C_{L_{\delta}}$).
-* **Propulsion (GasTurb & MATLAB):** * *Method A:* Batch processing/parsing raw Excel data from GasTurb 13.
-    * *Method B:* Writing a thermodynamic cycle analysis script for the J85-GE-5 engine (Intake $\to$ Nozzle) to generate Thrust & SFC maps dynamically.
+<div align="center">
+  <h3>🎥 Applied Flight Performance: Master Class (Coming Soon)</h3>
+  <p><em>This repository serves as the practical companion for an in-depth video course currently under production for Udemy.</em></p>
+</div>
 
-### Phase 2: The Physics Engine (Simulation)
-We build the `main_mission.m` script to integrate the Equations of Motion over time.
-* **Take-off:** Ground roll friction, drag, and rotation logic.
-* **Climb:** Rate of Climb (RC) optimization and altitude capture.
-* **Cruise:** Breguet range integration and fuel flow mass updates.
-* **Descent & Landing:** Energy management and the exponential decay flare maneuver.
+**Current Development Status:**
+- [x] **Module 1:** Aerodynamic Data Generation (OpenVSP)
+- [x] **Module 2:** Propulsion System Modeling (Thrust & SFC Maps)
+- [x] **Module 3:** 3-DOF Physics Engine Implementation
+- [x] **Module 4:** Autopilot Design & PID Tuning
+- [ ] **Module 5:** Course Video Production & Editing (**In Progress**)
 
-## 📂 Repository Structure
+> **🔔 Stay Tuned:** The course will guide students line-by-line through the creation of this entire codebase.
 
-```text
-├── 01_Aerodynamics_Database/      % OpenVSP exports and geometric data
-│   ├── VSP_Geom/                  % .vsp3 files (T-38 Talon)
-│   └── Aero_Data/                 % Processed .mat files (CL, CD, Cm vs Alpha/Mach)
-│
-├── 02_Propulsion_Model/           % Engine Performance Data
-│   ├── GasTurb_Data/              % Raw .xlsx exports (Dry & Wet Thrust)
-│   ├── MATLAB_PCA_Model/          % J85_Engine_Cycle.m (Thermodynamic script)
-│   └── Thrust_Lookup_Tables.mat   % Final 3D matrices for simulation
-│
-├── 03_Flight_Dynamics_Sim/        % The Core Physics Engine
-│   ├── Modules/
-│   │   ├── GroundRoll.m
-│   │   ├── Climb_PID.m            % PID Controller for Climb Phase
-│   │   ├── Cruise_Dynamics.m
-│   │   └── Landing_Flare.m        % Flare control logic
-│   └── Main_Mission_Profile.m     % Master execution script
-│
-├── 04_Utils/                      % Helper functions
-│   ├── grabit.m                   % Data digitization tool
-│   └── unit_conversions.m
-│
-└── README.md
-```
+---
 
-## 🛠️ Key Technologies
-* MATLAB: The backbone of the simulation (Optimization Toolbox recommended for PID tuning).
+## 📂 Repository Architecture
 
-* OpenVSP (NASA): Used for rapid aerodynamic analysis and stability derivative estimation.
+This project is modular by design. Each folder represents a specific engineering subsystem:
 
-* GasTurb 15: Used for generating baseline engine performance envelopes.
+| Module | Description | Key Tech |
+| :--- | :--- | :--- |
+| **[`Flight_Physics_Engine`](./Flight_Physics_Engine)** | The core 3-DOF solver calculating Forces, Moments, and State Derivatives. | `Equations of Motion` |
+| **[`Automatic_Control`](./Automatic_Control)** | Optimization scripts for tuning PID gains across different flight regimes (Rotation, Flare, etc.). | `fminsearch`, `PID` |
+| **[`Full_Mission_Profile_Analysis`](./Full_Mission_Profile_Analysis)** | **The Executive Script.** Integrates engine and autopilot to fly a complete "Gate-to-Gate" sortie. | `Simulation`, `Integration` |
+| **[`Calibrate_OpenVSP_Data`](./Calibrate_OpenVSP_Data)** | System ID tools to correct inviscid VSP data using experimental wind tunnel results. | `Data Fitting` |
+| **[`J-85-GE_Thrust_Data`](./J-85-GE_Thrust_Data)** | Digitized performance maps for the T-38's Turbojet engines. | `Propulsion` |
+| **[`Data_Handling`](./Data_Handling)** | Utilities for processing drag polars and atmospheric data. | `Data Science` |
 
-## 🚧 Development Status
-[x] Aerodynamic Database: Complete (OpenVSP V3.30).
+---
 
-[x] Propulsion Model: Complete (Both GasTurb & MATLAB PCA methods).
+## 🚀 Getting Started
 
-[x] Take-off Module: Complete.
+To run the full mission simulation on your local machine:
 
-[x] Climb & Cruise Modules: Complete (PID Tuned).
+1.  **Clone the Repository:**
+    ```bash
+    git clone [https://github.com/KivancApaydin1907/Applied_Flight_Performance_Udemy_Course.git](https://github.com/KivancApaydin1907/Applied_Flight_Performance_Udemy_Course.git)
+    ```
+2.  **Setup MATLAB Path:**
+    Open MATLAB and ensure all subfolders are added to your path (Right Click Folder -> *Add to Path* -> *Selected Folders and Subfolders*).
+3.  **Run the Simulation:**
+    Navigate to `Full_Mission_Profile_Analysis` and execute:
+    ```matlab
+    Full_Mission_Simulation
+    ```
+4.  **Analyze Results:**
+    The script will output a mission summary to the command window and generate dashboard plots.
 
-[ ] Final Polish: Landing Flare fine-tuning and code cleanup. 
+---
 
-## 🤝 Contributing
-This repository accompanies the Udemy course. While Pull Requests are welcome, the code is primarily educational. If you find a bug in the EOM derivation or the lookup table interpolation, please open an Issue!
+## 📊 Sample Output: Mission Dashboard
 
-<h2>👨‍💻 Author</h2>
-<p><strong>Kıvanç Apaydın</strong> – Aerospace Engineer</p>
+*The simulation automatically generates telemetry for trajectory, energy states, and control inputs.*
+
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/81bda72d-483c-4776-93a2-564c5a17f55a" alt="Mission Profile Dashboard" width="90%">
+</div>
+
+---
+
+## 🛠️ Tech Stack
+
+* **Language:** MATLAB R2025b (Backward compatible to R2020a)
+* **Aerodynamics:** OpenVSP (Vortex Lattice Method)
+* **Optimization:** Nelder-Mead Simplex Method (`fminsearch`)
+* **Control Theory:** Classical PID, Cascade Control, Gain Scheduling
+
+---
+
+## 👨‍💻 Author & Instructor
+
+**Kıvanç Apaydın**
+*Aerospace Engineer | Simulation Developer*
+
+* [LinkedIn Profile](www.linkedin.com/in/kıvanç-apaydın-3a53a8259)
+* [GitHub Profile](https://github.com/KivancApaydin1907)
+
+---
+
+<div align="center">
+  <sub>&copy; 2026 Applied Flight Performance Course. All rights reserved.</sub>
+</div>
