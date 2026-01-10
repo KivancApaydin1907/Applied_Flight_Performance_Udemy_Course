@@ -1,69 +1,62 @@
 <div align="center">
 
-# T-38 Talon: High-Fidelity Flight Dynamics & Autopilot Simulation
+# T-38 Talon: Full Mission Profile Simulation
 
-![Status](https://img.shields.io/badge/Status-Complete-success)
+![Status](https://img.shields.io/badge/Status-Mission_Accomplished-success)
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2025b-blue)
-![SimType](https://img.shields.io/badge/Simulation-3--DOF-orange)
-![Course](https://img.shields.io/badge/Udemy-Official_Course-red)
+![SimType](https://img.shields.io/badge/Simulation-NonLinear_3DOF-orange)
+![Architecture](https://img.shields.io/badge/Control-Gain_Scheduled-purple)
 
-> **"From Takeoff to Touchdown: A complete physics-based mission simulation framework."**
+> **"The Executive Script: Integrating high-fidelity physics with phase-dependent control laws for a complete Gate-to-Gate sortie."**
 
 </div>
 
 <p align="center">
-  This repository contains the source code for the capstone project of the <strong>"Applied Flight Performance"</strong> engineering course. It simulates the full mission profile of a supersonic trainer aircraft (Northrop T-38 Talon), featuring a custom physics engine and a modular autopilot architecture built entirely from scratch in MATLAB.
+  This is the <strong>Master Executive Script</strong> of the project. It acts as the Flight Control Computer (FCC), integrating the Physics Engine (<code>FlightDynamics.m</code>) with the Autopilot Logic (<code>RunPID.m</code>). It autonomously flies the aircraft through 11 distinct flight phases, switching control architectures and gains dynamically in real-time.
 </p>
 
 ---
 
-## 🚀 Project Overview
+## 🚀 Simulation Architecture
 
-This is not just a simple cruise performance calculator. It is a time-marching integration of non-linear Equations of Motion (EoM) that handles the aircraft's dynamics through **11 distinct flight phases**. The simulation manages complex transitions such as the rotation maneuver ($V_R$), aerodynamic braking during rollout, and a precision landing flare.
+Unlike the isolated "Tuner" scripts, this simulation runs continuous, time-marching integration where the end-state of one phase becomes the initial condition of the next.
 
-### Key Capabilities
-* **Physics Engine:** Custom 3-DOF point-mass solver accounting for variable mass, atmosphere (ISA), and aerodynamic databases.
-* **Universal Autopilot:** A modular `RunPID` architecture that handles **Cascade Control Loops** (e.g., Altitude $\to$ Pitch $\to$ Elevator).
-* **Full Envelope Protection:** Alpha limiters and Gamma constraints during the approach phase to prevent stall.
+### Key Features
+* **🧠 Gain Scheduling:** The autopilot is not static. It dynamically reconfigures PID gains and limits based on the flight regime (e.g., stiff pitch control during landing vs. soft control during cruise).
+* **💾 Checkpoint Generation:** As the mission progresses, the script automatically saves state vectors (`Rotation_Checkpoint.mat`, `Flare_Checkpoint.mat`, etc.). These snapshots feed the isolated optimization tuners.
+* **🛡️ State Machine Logic:** The code utilizes discrete `while` loops to represent flight phases, transitioning only when specific physical criteria are met (e.g., `Lift > Weight`, `Mach > 0.6`).
+
+---
 
 ## 🕹️ Mission Profile Breakdown
 
-The simulation autonomously flies the aircraft through the following sequence, exactly as defined in `Main_Mission_Profile.m`:
+The simulation executes the following sequence logic defined in `Full_Mission_Simulation.m`:
 
-| Phase | Description | Control Strategy |
-| :--- | :--- | :--- |
-| **01-03** | **Takeoff & Rotation** | Open Loop Throttle / PD Pitch Control for Rotation ($12^\circ$) |
-| **04** | **Initial Climb** | Attitude Hold until Obstacle Clearance ($15m$) |
-| **05** | **Climb** | **Constant Mach (0.6)** / Pitch holds Attitude |
-| **06** | **Cruise** | **Altitude Hold (11km)** / Cascade Loop (Alt $\to$ Pitch) |
-| **07** | **Descent** | **Constant Alpha Mode** ($8^\circ$) / Idle Thrust / Speedbrakes |
-| **08** | **Approach** | **Gamma Constraint** ($-7^\circ$) with Alpha Limiter ($<12^\circ$) |
-| **09** | **Flare** | **Precision Landing** / Sink Rate Control ($<1.2 m/s$) |
-| **10** | **Derotation** | Controlled Nose Lowering (Active Suspension Logic) |
-| **11** | **Braking** | Aerodynamic Braking (Stick Aft) + Wheel Brakes ($\mu = 0.5$) |
+| Phase | Description | Control Architecture | Target |
+| :--- | :--- | :--- | :--- |
+| **01-02** | **Ground Roll** | Open Loop | Max Power / Stick Neutral |
+| **03** | **Rotation** | **SISO PID** (Soft Pitch) | $\theta = 12^\circ$ |
+| **04** | **Initial Climb** | Attitude Hold | Obstacle Clearance ($15m$) |
+| **05** | **Climb** | **MIMO Control** (Coupled) | $Mach = 0.6$ / $\theta = 10^\circ$ |
+| **06** | **Cruise** | **Cascade Control** | $h = 11,000m$ / $Mach = 0.8$ |
+| **07** | **Descent** | **Energy Management** | $\alpha = 8^\circ$ (Constant AoA) |
+| **08** | **Approach** | **Envelope Protection** | $\gamma = -7^\circ$ / Limit $\alpha < 12^\circ$ |
+| **09** | **Flare** | **Precision Landing** | $\dot{h} = -1.2 m/s$ / $\theta = 6^\circ$ |
+| **10** | **Derotation** | **Active Damping** | Soft Nose Drop ($\dot{q} > -3^\circ/s$) |
+| **11** | **Rollout** | Kinematic Braking | Max Deceleration |
+
+---
 
 ## 📂 Repository Structure
 
-The codebase is organized to separate the physics engine from the mission logic:
+This folder contains the executive logic and the resulting flight data:
 
 ```text
-├── Performance_Analysis.m       % MASTER SCRIPT: Runs the 11-phase simulation loop
-└── README.md                    % Documentation
+Full_Mission_Profile_Analysis/
+│
+├── Full_Mission_Simulation.m   # THE BOSS CODE: Runs the complete 11-phase loop
+└── README.md                   # Documentation
 ```
-<h2>🛠️ Technical Implementation Details</h2>
-
-<h3>1. The Physics Solver</h3>
-<p>The simulation integrates the state vector <code>[u, w, q, &theta;, x_E, z_E, m]</code> using a fixed-step Euler method (<code>dt = 0.01s</code> for critical phases).</p>
-
-<h3>2. Cascade Control Architecture</h3>
-<p>For the Cruise phase, a <strong>Cascade Control System</strong> is implemented to maintain altitude:</p>
-<ul>
-  <li><strong>Outer Loop:</strong> Reads Altitude Error &rarr; Outputs Target Pitch Angle.</li>
-  <li><strong>Inner Loop:</strong> Reads Pitch Error &rarr; Outputs Elevator Deflection.</li>
-</ul>
-
-<h3>3. Landing Logic</h3>
-<p>The landing phase (Phase 09) uses a specialized logic where the throttle is modulated to maintain a specific <strong>Sink Rate</strong> (Vertical Speed), while the elevator maintains a safe touchdown attitude, ensuring a "Butter" landing (< 1.0 m/s impact).</p>
 
 <h2>📊 Visualization</h2>
 <p>The script automatically generates a comprehensive <strong>Mission Analysis Dashboard</strong> upon completion, plotting:</p>
