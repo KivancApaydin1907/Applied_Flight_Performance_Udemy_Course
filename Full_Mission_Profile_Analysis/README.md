@@ -76,13 +76,13 @@ The codebase is organized to separate the physics engine from the mission logic:
 
 <div align="center">
   
-<img width="728" height="367" alt="image" src="https://github.com/user-attachments/assets/31b60460-cce8-4496-9b95-610407b93a1b" />
+<img width="738" height="366" alt="image" src="https://github.com/user-attachments/assets/3c8ffb99-5342-4de7-b8d2-0197a43afb09" />
 
 <p><em>Figure 1: Mission Performance Summary Table generated automatically at the end of the simulation.</em></p>
 
 <br>
 
-<img width="1836" height="851" alt="Mission Profile Analysis" src="https://github.com/user-attachments/assets/2337e16b-3e0d-4c52-bfb7-b311738bcd8d" />
+<img width="1836" height="851" alt="Mission Profile Analysis" src="https://github.com/user-attachments/assets/81bda72d-483c-4776-93a2-564c5a17f55a" />
 
 <p><em>Figure 2: Comprehensive Mission Analysis Dashboard visualizing the complete 11-phase flight profile including kinematics, forces, and control inputs.</em></p>
 
