@@ -53,12 +53,12 @@ TunerConfig.Target_Mach = 0.8;          % [Mach] Cruise Speed
 % --- INHERITED GAINS (FROZEN) ---
 % These gains were solved in the previous "Climb Phase".
 % In a cascade system, the inner loop must be tuned first and kept constant.
-Inherited.Pitch.Kp = -18.0340;  
-Inherited.Pitch.Ki =  0.0807;
-Inherited.Pitch.Kd =  9.2617;
-Inherited.Speed.Kp =  533.4933;
-Inherited.Speed.Ki = -0.0163;
-Inherited.Speed.Kd = -43.4132;
+Inherited.Pitch.Kp = -35.0134;  
+Inherited.Pitch.Ki =  0.0245;
+Inherited.Pitch.Kd =  24.3466;
+Inherited.Speed.Kp =  649.2745;
+Inherited.Speed.Ki = -0.0015;
+Inherited.Speed.Kd =  2.8893;
 
 % --- OPTIMIZATION VECTOR ---
 % G(1-3): Altitude PID [Kp, Ki, Kd]
@@ -68,7 +68,7 @@ InitialGuess = [0.0005, 0.00001, 0.001, 0.4];
 
 % Solver Options
 Opts = optimset('Display', 'iter', ...
-                'MaxIter', 400, ...
+                'MaxIter', 1000, ...
                 'TolX', 1e-5, ...
                 'TolFun', 1e-5);
 
@@ -111,7 +111,7 @@ function J = EvaluateCruisePerformance(Gains, CP, Config, FixedGains)
     C.Alt.Ki  = Gains(2); 
     C.Alt.Kd  = Gains(3);
     % Limit Authority: The autopilot can only request +/- 5 deg pitch change
-    % to correct altitude errors. This ensures passenger comfort.
+    % to correct altitude errors.
     C.Alt.Max = deg2rad(5);  
     C.Alt.Min = -deg2rad(5); 
 
