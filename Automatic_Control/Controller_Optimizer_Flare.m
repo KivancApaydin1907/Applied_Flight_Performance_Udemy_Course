@@ -1,236 +1,180 @@
 %% ========================================================================
-%  PROJECT: T-38 TALON FLIGHT DYNAMICS & CONTROL
-%  MODULE:  PRECISION LANDING TUNER (FLARE & TOUCHDOWN)
+%  PROJECT:     T-38 TALON FLIGHT DYNAMICS & CONTROL
+%  MODULE:      PRECISION LANDING TUNER (FLARE & TOUCHDOWN) - FINAL V5
 %  ========================================================================
-%  AUTHOR:      Kıvanç Apaydın
+%  AUTHOR:      Kivanc Apaydin
 %  DATE:        01/2026
 %  PLATFORM:    MATLAB R2025b
 %
 %  DESCRIPTION:
-%     This script optimizes the automatic landing (Flare) logic. The objective
-%     is to guide the aircraft from the approach threshold to a safe touchdown.
+%     This script optimizes the automatic landing logic for the T-38 Talon.
+%     It utilizes a Multi-Variable (MIMO) control strategy to arrest the
+%     sink rate while maintaining a safe landing attitude.
 %
-%     Control Strategy (MIMO):
-%     1. Pitch Controller (Attitude Hold):
-%        - Maintains a specific nose-up attitude (+6.0 deg) to ensure main
-%          gear touchdown first (avoiding "wheelbarrowing").
-%
-%     2. Throttle Controller (Sink Rate Arrest):
-%        - Modulates engine power to maintain a safe descent rate (-1.2 m/s).
-%        - Prevents "Hard Landings" (Sink > -2.0 m/s) and "Floating".
-%
-%     Optimization Criteria:
-%     - Touchdown Vertical Velocity (Minimize deviation from -1.2 m/s)
-%     - Touchdown Pitch Attitude (Minimize deviation from 6.0 deg)
-%
-%  DEPENDENCIES:
-%     - FlightDynamics.m
-%     - RunPID.m
-%     - Flare_Checkpoint.mat (Generated at end of Approach Phase)
+%  OBJECTIVES:
+%     1. Achieve a "Greaser" touchdown (Target: -0.6 m/s).
+%     2. Minimize control surface oscillations (Smoothness Penalty).
+%     3. Prevent runway "Floating" (Time-based Penalty).
 % ========================================================================
 clearvars; clc; close all;
 
-%% ========================================================================
-%  1. INITIALIZATION & CONFIGURATION
-%  ========================================================================
+%% 1. INITIALIZATION & CONFIGURATION
 fprintf('----------------------------------------------------------\n');
-fprintf('>> T-38 FLARE & LANDING TUNER INITIATED.\n');
+fprintf('>> T-38 FLARE & LANDING TUNER INITIATED (FINAL PRODUCTION).\n');
 fprintf('----------------------------------------------------------\n');
 
 if ~isfile('Flare_Checkpoint.mat')
-    error('>> ERROR: Checkpoint file "Flare_Checkpoint.mat" not found.');
+    error('>> ERROR: Required "Flare_Checkpoint.mat" not found in path.');
 end
 load('Flare_Checkpoint.mat', 'Checkpoint');
-fprintf('>> Checkpoint Loaded. Simulation Time: %.2f s\n', Checkpoint.Time);
 
-% --- TUNER TARGETS ---
-TunerConfig.Target_Theta    = deg2rad(6.0); % [rad] Ideal Touchdown Attitude
-TunerConfig.Target_SinkRate = -1.2;         % [m/s] Ideal Touchdown Velocity
-TunerConfig.Hard_Limit      = -2.5;         % [m/s] Structural Damage Limit
+% --- PERFORMANCE TARGETS ---
+TunerConfig.Target_Theta    = deg2rad(6.5); % High AOA for aerodynamic braking
+TunerConfig.Target_SinkRate = -0.6;         % Ideal sink rate (Butter landing)
+TunerConfig.Hard_Limit      = -2.5;         % Maximum structural limit (m/s)
+TunerConfig.Elev_Limit      = deg2rad(20);  % Max physical elevator deflection
 
-% --- OPTIMIZATION VECTOR ---
-% G(1-3): Pitch PID [Kp, Ki, Kd]
-% G(4-6): Throttle PD+Base [Kp, Kd, Base_Setting]
-% Initial Guess Logic:
-% - Pitch needs to be stiff (High Kp) to fight ground effect pitching moments.
-% - Throttle Kp usually Negative (Sink Rate too high -> Error Negative -> Need Power).
-InitialGuess = [-18.0, 0.08, 9.2, ...   % Pitch Gains
-                -5.0, -1.0, 0.35];      % Throttle Gains
+% --- OPTIMIZATION VECTOR (7 GAINS) ---
+% Index 1-3: Pitch PID [Kp, Ki, Kd]
+% Index 4-6: Throttle PD+Base [Kp, Kd, Base]
+% Index 7  : Throttle Integral [Ki]
+InitialGuess = [-10.0, 0.01, 12.0, ...   
+                 0.15,  1.5,  0.45, ...  
+                 0.005];                
 
-% Solver Options (High precision required)
 Opts = optimset('Display', 'iter', ...
-                'MaxIter', 500, ...
-                'TolX', 1e-5, ...
-                'TolFun', 1e-5);
+                'MaxIter', 1000, ...
+                'MaxFunEvals', 2000, ...
+                'TolX', 1e-6, ...
+                'TolFun', 1e-6);
 
-%% ========================================================================
-%  2. EXECUTE OPTIMIZATION
-%  ========================================================================
-fprintf('>> Starting Optimization Loop (Objective: Butter Landing)...\n');
-
+%% 2. EXECUTE OPTIMIZATION
+fprintf('>> Optimization process started. Objective: Stability & Smoothness...\n');
 CostFunc = @(Gains) EvaluateFlarePerformance(Gains, Checkpoint, TunerConfig);
-
 [OptimalGains, MinCost] = fminsearch(CostFunc, InitialGuess, Opts);
 
-%% ========================================================================
-%  3. REPORT RESULTS
-%  ========================================================================
+%% 3. REPORT RESULTS
 fprintf('\n==========================================================\n');
 fprintf('OPTIMIZATION COMPLETE.\n');
 fprintf('==========================================================\n');
-fprintf('Final Cost: %.4f\n', MinCost);
+fprintf('Final Optimized Cost: %.4f\n', MinCost);
 fprintf('----------------------------------------------------------\n');
-fprintf('1. PITCH CONTROLLER (Attitude Hold):\n');
-fprintf('   Kp: %8.4f\n', OptimalGains(1));
-fprintf('   Ki: %8.4f\n', OptimalGains(2));
-fprintf('   Kd: %8.4f\n', OptimalGains(3));
+fprintf('1. PITCH CONTROLLER (Nose Attitude Hold):\n');
+fprintf('   Kp: %8.4f | Ki: %8.4f | Kd: %8.4f\n', OptimalGains(1), OptimalGains(2), OptimalGains(3));
 fprintf('----------------------------------------------------------\n');
-fprintf('2. THROTTLE CONTROLLER (Sink Rate Arrest):\n');
-fprintf('   Kp: %8.4f [Power per m/s error]\n', OptimalGains(4));
-fprintf('   Kd: %8.4f\n', OptimalGains(5));
-fprintf('   Base: %.4f [Feed-Forward Power]\n', OptimalGains(6));
+fprintf('2. THROTTLE CONTROLLER (Vertical Speed Control):\n');
+fprintf('   Kp: %8.4f | Ki: %8.4f | Kd: %8.4f\n', OptimalGains(4), OptimalGains(7), OptimalGains(5));
+fprintf('   Base Setting (FFW): %.4f\n', OptimalGains(6));
 fprintf('==========================================================\n');
 
 VisualizePerformance(OptimalGains, Checkpoint, TunerConfig);
 
-%% ========================================================================
-%  LOCAL FUNCTION: COST FUNCTION EVALUATION
-%  ========================================================================
+%% LOCAL FUNCTION: PERFORMANCE EVALUATION (COST FUNCTION)
 function J = EvaluateFlarePerformance(Gains, CP, Config)
-
-    % --- 1. UNPACK CONTROLLERS ---
-    % Pitch Controller
-    C.Pitch.Kp = Gains(1); 
-    C.Pitch.Ki = Gains(2); 
-    C.Pitch.Kd = Gains(3);
-    C.Pitch.Max = deg2rad(25); % Allow full elevator authority
-    C.Pitch.Min = -deg2rad(25);
+    % --- Unpack Controller Gains ---
+    C.Pitch.Kp = Gains(1); C.Pitch.Ki = Gains(2); C.Pitch.Kd = Gains(3);
+    C.Pitch.Max = Config.Elev_Limit; C.Pitch.Min = -Config.Elev_Limit;
     
-    % Throttle Controller (PD + Base)
     C.Throt.Kp   = Gains(4); 
+    C.Throt.Ki   = Gains(7); 
     C.Throt.Kd   = Gains(5);
     C.Throt.Base = Gains(6);
-    C.Throt.Max  = 1.0; 
-    C.Throt.Min  = 0.0;
+    C.Throt.Max  = 1.0; C.Throt.Min  = 0.0;
     
-    % --- 2. FEASIBILITY CHECKS ---
-    % Pitch Kp must be Negative (Pitch Up requires negative deflection convention)
-    % Throttle Base must be [0,1]
-    if C.Pitch.Kp > 0 || C.Throt.Base < 0 || C.Throt.Base > 1.0
+    % --- Feasibility Constraint Check ---
+    if C.Pitch.Kp > -0.5 || C.Throt.Base < 0.2 || C.Throt.Base > 0.8 || C.Throt.Ki < 0
          J = 1e15; return; 
     end
     
-    % --- 3. SIMULATION SETUP ---
-    State = CP.StateVector; AC = CP.AC; Env = CP.Env; 
-    dt = 0.01; % High Fidelity Time Step for Landing (50 Hz)
+    State = CP.StateVector; AC = CP.AC; Env = CP.Env; dt = 0.01;
+    PitchState = struct('Integrator', 0, 'PrevError', 0);
+    ThrotState = struct('Integrator', 0, 'PrevError', 0);
     
-    PitchState      = struct('Integrator', 0, 'PrevError', 0);
-    Prev_Sink_Error = 0;
-    
-    MaxSteps = 1000; % 20 seconds max (prevent floating forever)
+    MaxSteps = 1500; 
     Touchdown_Flag = false;
-    Final_Sink_Rate = 0;
+    Total_Control_Effort = 0;
+    Prev_Throttle = 0; Prev_Elevator = 0;
     
-    % --- 4. LANDING LOOP ---
+    % --- Simulation Loop ---
     for k = 1:MaxSteps
-        % [Sensors]
-        [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
-        
-        % Vertical Speed Calculation (Inertial z_dot)
-        % Note: z_dot is negative for descent.
+        % Vertical Velocity Calculation
         Current_SinkRate = -State.w * cos(State.theta) + State.u * sin(State.theta); 
         
-        % --- CONTROL LOGIC ---
+        % PID Control Laws
+        [Delta_Cmd, PitchState] = RunPID(Config.Target_Theta, State.theta, dt, C.Pitch, PitchState, State.q);
+        [Throttle_Cmd, ThrotState] = RunPID(Config.Target_SinkRate, Current_SinkRate, dt, C.Throt, ThrotState);
         
-        % [A] Pitch Control (Maintain Nose High)
-        [Elev_Cmd, PitchState] = RunPID(Config.Target_Theta, State.theta, dt, ...
-                                        C.Pitch, PitchState, State.q);
+        % Auto-Idle Logic (Altitude < 0.3m)
+        if -State.z_E < 0.3, Throttle_Cmd = 0.0; end
         
-        % [B] Throttle Control (Arrest Sink Rate)
-        Sink_Error = Current_SinkRate - Config.Target_SinkRate;
-        D_Term     = (Sink_Error - Prev_Sink_Error) / dt;
-        Prev_Sink_Error = Sink_Error;
+        % Compute Control Effort (Penalty for hunting/chatter)
+        if k > 1
+            Total_Control_Effort = Total_Control_Effort + abs(Throttle_Cmd - Prev_Throttle)*50 + abs(Delta_Cmd - Prev_Elevator)*10;
+        end
+        Prev_Throttle = Throttle_Cmd; Prev_Elevator = Delta_Cmd;
         
-        % PD Control Law
-        Throt_Cmd = C.Throt.Base + (C.Throt.Kp * Sink_Error) + (C.Throt.Kd * D_Term);
-        Throt_Cmd = max(min(Throt_Cmd, C.Throt.Max), C.Throt.Min);
-        
-        % [Logic] IDLE AT TOUCHDOWN
-        % Cut power when radar altimeter reads < 0.2m to ensure settling.
-        if -State.z_E < 0.2, Throt_Cmd = 0.0; end
-        
-        % [Physics]
-        Controls.ElevatorDeflection = Elev_Cmd;
-        Controls.ThrottleSetting    = Throt_Cmd;
+        % Physics Engine Call
+        Controls.ElevatorDeflection = Delta_Cmd;
+        Controls.ThrottleSetting    = Throttle_Cmd;
         Controls.SpeedBrake         = 0.5; 
         Controls.Gear               = 1.0;
         
         Log = FlightDynamics(State, AC, Env, Controls);
         Derv = Log.Derivatives;
         
-        % [Integration]
-        State.x_E   = State.x_E   + Derv.x_dot_E*dt;
-        State.z_E   = State.z_E   + Derv.z_dot_E*dt;
-        State.u     = State.u     + Derv.u_dot*dt;
-        State.w     = State.w     + Derv.w_dot*dt;
-        State.theta = State.theta + Derv.theta_dot*dt;
-        State.q     = State.q     + Derv.q_dot*dt;
+        % State Integration
+        State.x_E   = State.x_E + Derv.x_dot_E*dt; 
+        State.z_E   = State.z_E + Derv.z_dot_E*dt;
+        State.u     = State.u + Derv.u_dot*dt; 
+        State.w     = State.w + Derv.w_dot*dt;
+        State.theta = State.theta + Derv.theta_dot*dt; 
+        State.q     = State.q + Derv.q_dot*dt;
         
-        % --- TERMINATION CHECK (TOUCHDOWN) ---
-        if -State.z_E <= 0
-            Touchdown_Flag = true;
-            Final_Sink_Rate = Derv.z_dot_E; % Capture impact velocity
-            break; 
-        end
+        if -State.z_E <= 0, Touchdown_Flag = true; break; end
     end
     
-    % --- 5. COST CALCULATION ---
+    % --- Cost Calculation Logic ---
     if ~Touchdown_Flag
-        J = 1e15; % Penalty for Floating (Running out of runway/time)
+        J = 1e10 + (-State.z_E * 2000); % Large penalty for floating or crash
     else
-        % Sink Rate Cost (Heavily weighted)
-        Sink_Penalty = abs(Final_Sink_Rate - Config.Target_SinkRate) * 1000;
+        % Objective 1: Sink Rate Accuracy
+        Sink_Penalty = ((Derv.z_dot_E - Config.Target_SinkRate)^2) * 25000;
+        if Derv.z_dot_E < Config.Hard_Limit, Sink_Penalty = 1e12; end
         
-        % Hard Landing Barrier (Crash Prevention)
-        if Final_Sink_Rate < Config.Hard_Limit
-             Sink_Penalty = 1e10; 
-        end
+        % Objective 2: Nose-High Geometry
+        Pitch_Penalty = (rad2deg(State.theta) - rad2deg(Config.Target_Theta))^2 * 4000;
         
-        % Pitch Attitude Cost (Prevent Tailstrike or Nosewheel first)
-        Pitch_Penalty = abs(State.theta - Config.Target_Theta) * 500;
+        % Objective 3: Avoid Floating (Minimize Runway Length used)
+        Time_Penalty = k * 150; 
         
-        J = Sink_Penalty + Pitch_Penalty;
+        % Objective 4: Smoothness (Control oscillation penalty)
+        Smooth_Penalty = Total_Control_Effort * 1000;
+        
+        J = Sink_Penalty + Pitch_Penalty + Time_Penalty + Smooth_Penalty;
     end
 end
 
-%% ========================================================================
-%  LOCAL FUNCTION: VISUALIZATION
-%  ========================================================================
+%% LOCAL FUNCTION: DUAL-WINDOW VISUALIZATION
 function VisualizePerformance(Gains, CP, Config)
-    fprintf('>> Generating Visualization...\n');
+    fprintf('>> Generating High-Fidelity Results Plot...\n');
     
-    % Reconstruct Controllers
+    % Reconstruct Controllers for Verification
     C.Pitch.Kp = Gains(1); C.Pitch.Ki = Gains(2); C.Pitch.Kd = Gains(3);
-    C.Pitch.Max = deg2rad(25); C.Pitch.Min = -deg2rad(25);
-    C.Throt.Kp = Gains(4); C.Throt.Kd = Gains(5); C.Throt.Base = Gains(6);
+    C.Pitch.Max = Config.Elev_Limit; C.Pitch.Min = -Config.Elev_Limit;
+    C.Throt.Kp = Gains(4); C.Throt.Ki = Gains(7); C.Throt.Kd = Gains(5); C.Throt.Base = Gains(6);
     C.Throt.Max = 1.0; C.Throt.Min = 0.0;
     
     State = CP.StateVector; AC = CP.AC; Env = CP.Env; dt = 0.02;
-    PitchState = struct('Integrator', 0, 'PrevError', 0); Prev_Sink_Error = 0;
+    PitchState = struct('Integrator', 0, 'PrevError', 0);
+    ThrotState = struct('Integrator', 0, 'PrevError', 0);
     
-    Hist_Alt = []; Hist_Sink = []; Hist_Theta = []; Hist_Throt = [];
-    Touchdown_Idx = 0;
+    Hist_Alt = []; Hist_Sink = []; Hist_Theta = []; Hist_Elev = []; Hist_Throt = [];
     
-    for k = 1:500
-        [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
+    for k = 1:1500
         Current_SinkRate = -State.w * cos(State.theta) + State.u * sin(State.theta);
-        
         [Elev_Cmd, PitchState] = RunPID(Config.Target_Theta, State.theta, dt, C.Pitch, PitchState, State.q);
-        
-        Sink_Error = Current_SinkRate - Config.Target_SinkRate;
-        D_Term = (Sink_Error - Prev_Sink_Error) / dt; Prev_Sink_Error = Sink_Error;
-        Throt_Cmd = max(min(C.Throt.Base + (C.Throt.Kp * Sink_Error) + (C.Throt.Kd * D_Term), 1.0), 0.0);
-        if -State.z_E < 0.2, Throt_Cmd = 0.0; end
+        [Throt_Cmd, ThrotState] = RunPID(Config.Target_SinkRate, Current_SinkRate, dt, C.Throt, ThrotState);
+        if -State.z_E < 0.3, Throt_Cmd = 0.0; end
         
         Controls.ElevatorDeflection = Elev_Cmd; Controls.ThrottleSetting = Throt_Cmd;
         Controls.SpeedBrake = 0.5; Controls.Gear = 1.0;
@@ -241,19 +185,18 @@ function VisualizePerformance(Gains, CP, Config)
         State.theta = State.theta + Derv.theta_dot*dt; State.q = State.q + Derv.q_dot*dt;
         
         Hist_Alt(k)   = -State.z_E;
-        Hist_Sink(k)  = Derv.z_dot_E; % m/s
+        Hist_Sink(k)  = Current_SinkRate; 
         Hist_Theta(k) = rad2deg(State.theta);
         Hist_Throt(k) = Throt_Cmd * 100;
+        Hist_Elev(k)  = rad2deg(Elev_Cmd); 
         
-        if -State.z_E <= 0
-            Touchdown_Idx = k;
-            break; 
-        end
+        if -State.z_E <= 0, break; end
     end
     
     % --- RESULTS REPORT ---
     Final_Sink = Hist_Sink(end);
-    fprintf('\n-----------------------------------------------\n');
+
+        fprintf('\n-----------------------------------------------\n');
     fprintf('TOUCHDOWN REPORT:\n');
     fprintf('-----------------------------------------------\n');
     fprintf('Impact Speed (Vertical): %.2f m/s (%.0f fpm)\n', Final_Sink, Final_Sink*196.85);
@@ -269,25 +212,38 @@ function VisualizePerformance(Gains, CP, Config)
         fprintf('>> GRADE: CRASH (Structural Failure)\n');
     end
     fprintf('-----------------------------------------------\n');
-    
+
     % --- PLOTTING ---
+    fprintf('\nTOUCHDOWN PERFORMANCE REPORT:\n');
+    fprintf('   Impact Velocity: %.2f m/s (%.1f fpm)\n', Final_Sink, Final_Sink*196.85);
+    fprintf('   Nose Attitude  : %.2f deg\n', Hist_Theta(end));
+    
+    % WINDOW 1: FLIGHT TRAJECTORY & PERFORMANCE
     figure('Name','Flare & Touchdown Analysis','Color','w');
-    
-    % 1. Altitude (The "Flare" Shape)
     subplot(3,1,1); 
-    plot(Hist_Alt, 'LineWidth', 2, 'Color', [0.4660 0.6740 0.1880]); grid on;
-    ylabel('Altitude (m)'); title('Flare Trajectory (Radar Alt)');
+    plot(Hist_Alt, 'Color', [0 0.6 0], 'LineWidth', 2); grid on; 
+    ylabel('Altitude (m)'); title('Flare Trajectory Profile');
     
-    % 2. Sink Rate (The "Cushion")
     subplot(3,1,2); 
-    plot(Hist_Sink, 'LineWidth', 2, 'Color', [0.8500 0.3250 0.0980]); grid on;
-    yline(Config.Target_SinkRate, '--g', 'Target (-1.2 m/s)', 'LineWidth', 1.5);
-    yline(Config.Hard_Limit, '--r', 'Hard Limit', 'LineWidth', 1.5);
-    ylabel('Sink Rate (m/s)'); title('Vertical Velocity Arrest');
+    plot(Hist_Sink, 'r', 'LineWidth', 2); grid on; 
+    ylabel('Sink Rate (m/s)'); hold on;
+    yline(Config.Target_SinkRate, '--k', 'Target');
+    title(sprintf('Vertical Speed Cushion (Final: %.2f m/s)', Final_Sink));
     
-    % 3. Pitch Attitude (The "Geometry")
     subplot(3,1,3); 
-    plot(Hist_Theta, 'LineWidth', 2, 'Color', [0 0.4470 0.7410]); grid on;
-    yline(rad2deg(Config.Target_Theta), '--k', 'Target Pitch (6.0 deg)');
-    ylabel('Pitch (deg)'); title('Touchdown Attitude');
+    plot(Hist_Theta, 'b', 'LineWidth', 2); grid on; 
+    ylabel('Pitch (deg)'); hold on;
+    yline(rad2deg(Config.Target_Theta), '--k', 'Target');
+    title(sprintf('Touchdown Geometry (Final: %.2f deg)', Hist_Theta(end)));
+
+    % WINDOW 2: CONTROL SURFACE DYNAMICS
+    figure('Name','Control Input Stability','Color','w');
+    subplot(2,1,1); 
+    plot(Hist_Elev, 'm', 'LineWidth', 2); grid on; 
+    ylabel('Elevator (deg)'); title('Pitch Stability & Damping');
+    
+    subplot(2,1,2); 
+    plot(Hist_Throt, 'color', [0.9 0.6 0.1], 'LineWidth', 2); grid on; 
+    ylabel('Throttle (%)'); title('Throttle Power Management');
+    xlabel('Simulation Steps (0.02s interval)');
 end
