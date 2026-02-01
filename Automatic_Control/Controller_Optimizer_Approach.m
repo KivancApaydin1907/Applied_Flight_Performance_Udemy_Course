@@ -7,27 +7,9 @@
 %  PLATFORM:    MATLAB R2025b
 %
 %  DESCRIPTION:
-%     This script tunes the "Constrained Approach" autopilot. Unlike cruise,
-%     approach requires precise Flight Path Angle (Gamma) tracking to intercept
-%     the glide slope, while strictly respecting Angle of Attack (Alpha) limits.
-%
-%     Control Strategy:
-%     1. Gamma Controller (Outer Loop):
-%        - Input: Gamma Error (Target -7 deg)
-%        - Output: Pitch Attitude Reference (Theta_Ref)
-%
-%     2. Pitch Controller (Inner Loop):
-%        - Stabilizes the aircraft to the Theta_Ref.
-%
-%     3. Energy Management (Envelope Protection):
-%        - Rule-Based Logic overrides Throttle and Speed Brakes based on Alpha.
-%        - IF Alpha > 12 deg: Max Throttle (Stall Prevention).
-%        - IF Alpha < 10 deg: Deploy Speed Brakes (Drag Management).
-%
-%  DEPENDENCIES:
-%     - FlightDynamics.m
-%     - RunPID.m
-%     - Approach_Checkpoint.mat (Generated at end of Descent Phase)
+%     This script tunes the "Constrained Approach" autopilot. 
+%     - Target: Track -4 deg Gamma (Flight Path Angle).
+%     - Constraint: Keep Alpha below 12 deg.
 % ========================================================================
 clearvars; clc; close all;
 
@@ -45,19 +27,18 @@ load('Approach_Checkpoint.mat', 'Checkpoint');
 fprintf('>> Checkpoint Loaded. Simulation Time: %.2f s\n', Checkpoint.Time);
 
 % --- TUNER TARGETS ---
-TunerConfig.Target_Gamma = deg2rad(-7.0); % [rad] Steep approach path
+TunerConfig.Target_Gamma = deg2rad(-4.0); % [rad] Safe Approach Angle (-4 deg)
 TunerConfig.Max_Alpha    = deg2rad(12.0); % [rad] Stall Warning Limit
 
-% --- INHERITED GAINS (FROZEN) ---
-% Pitch Inner Loop gains from previous phases.
-Inherited.Pitch.Kp = -35.6016;   
-Inherited.Pitch.Ki =  0.0244;   
-Inherited.Pitch.Kd =  24.3107;   
+% --- INHERITED GAINS (Inner Loop - Pitch) ---
+Inherited.Pitch.Kp = -35.0134;   
+Inherited.Pitch.Ki =  0.0245;   
+Inherited.Pitch.Kd =  24.3466;   
 
 % --- OPTIMIZATION VECTOR ---
 % G(1-3): Gamma PID [Kp, Ki, Kd]
-% Note: Gamma response is slower than Pitch but faster than Altitude.
-InitialGuess = [0.5, 0.05, 0.3]; 
+% Updated Initial Guess to start searching in the "Right Direction"
+InitialGuess = [1.5, 0.1, 0.5]; 
 
 % Solver Options
 Opts = optimset('Display', 'iter', ...
@@ -68,10 +49,8 @@ Opts = optimset('Display', 'iter', ...
 %% ========================================================================
 %  2. EXECUTE OPTIMIZATION
 %  ========================================================================
-fprintf('>> Starting Optimization Loop (Constraint: Alpha < 12 deg)...\n');
-
+fprintf('>> Starting Optimization Loop (Objective: Track Gamma -4, Min Error)...\n');
 CostFunc = @(Gains) EvaluateApproachPerformance(Gains, Checkpoint, TunerConfig, Inherited);
-
 [OptimalGains, MinCost] = fminsearch(CostFunc, InitialGuess, Opts);
 
 %% ========================================================================
@@ -94,34 +73,27 @@ VisualizePerformance(OptimalGains, Checkpoint, TunerConfig, Inherited);
 %  LOCAL FUNCTION: COST FUNCTION EVALUATION
 %  ========================================================================
 function J = EvaluateApproachPerformance(Gains, CP, Config, FixedGains)
-
     % --- 1. SETUP CONTROLLERS ---
-    % [A] Gamma Controller (Tuning Variables)
     C.Gamma.Kp  = Gains(1); 
     C.Gamma.Ki  = Gains(2); 
     C.Gamma.Kd  = Gains(3);
-    % Limit the Authority: The autopilot cannot request extreme pitch attitudes
-    % just to fix the flight path.
     C.Gamma.Max = deg2rad(5.0);  
     C.Gamma.Min = deg2rad(-10.0);
-
-    % [B] Pitch Controller (Fixed / Inner Loop)
-    C.Pitch.Kp  = FixedGains.Pitch.Kp;
-    C.Pitch.Ki  = FixedGains.Pitch.Ki;
-    C.Pitch.Kd  = FixedGains.Pitch.Kd;
+    
+    C.Pitch     = FixedGains.Pitch;
     C.Pitch.Max = deg2rad(20); 
     C.Pitch.Min = -deg2rad(20);
-
+    
     % --- 2. FEASIBILITY CHECKS ---
-    % Physics Check: Gamma Kp must be POSITIVE.
-    % Logic: Target Gamma (-7) < Current Gamma (-5) -> Error is Negative.
-    % To Descend more, we need to Pitch Down (Negative Theta).
-    % Therefore: Neg Error * Pos Gain = Neg Output.
-    if C.Gamma.Kp < 0; J = 1e15; return; end
-
+    % 1. Kp must be POSITIVE (Neg Error -> Pitch Down -> Neg Theta)
+    % 2. Ki must be POSITIVE (Accumulated Error logic)
+    if C.Gamma.Kp < 0 || C.Gamma.Ki < 0 
+        J = 1e15; return; 
+    end
+    
     % --- 3. SIMULATION INITIALIZATION ---
     State = CP.StateVector; AC = CP.AC; Env = CP.Env; 
-    dt = 0.01; % High precision for approach physics
+    dt = 0.01; 
     
     GammaState = struct('Integrator', 0, 'PrevError', 0);
     PitchState = struct('Integrator', 0, 'PrevError', 0);
@@ -129,16 +101,15 @@ function J = EvaluateApproachPerformance(Gains, CP, Config, FixedGains)
     Total_Gamma_Error = 0; 
     Stall_Penalty     = 0;
     
-    MaxSteps = 1000; % 10 seconds evaluation window
+    MaxSteps = 1000; % 10 seconds evaluation
     
     % --- 4. FLIGHT LOOP ---
     for k = 1:MaxSteps
         % [Sensors]
         [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
-        Current_Gamma = atan2(-State.w, State.u);
-        
-        % Calculate Alpha (Theta = Gamma + Alpha) -> Alpha = Theta - Gamma
-        Current_Alpha_Rad = State.theta - Current_Gamma;
+
+        Current_Alpha_Rad = atan2(State.w, State.u); 
+        Current_Gamma = State.theta - Current_Alpha_Rad;
         Current_Alpha_Deg = rad2deg(Current_Alpha_Rad);
         
         % --- CASCADE CONTROL LOGIC ---
@@ -146,37 +117,31 @@ function J = EvaluateApproachPerformance(Gains, CP, Config, FixedGains)
         % 1. OUTER LOOP: Gamma -> Pitch Reference
         [Ref_Theta, GammaState] = RunPID(Config.Target_Gamma, Current_Gamma, dt, ...
                                          C.Gamma, GammaState);
-        
-        % Safety Limiter (Saturate the Pitch Command)
-        Ref_Theta = max(min(Ref_Theta, C.Gamma.Max), C.Gamma.Min);
-        
+              
         % 2. INNER LOOP: Pitch Reference -> Elevator
         [Elevator, PitchState] = RunPID(Ref_Theta, State.theta, dt, ...
                                         C.Pitch, PitchState, State.q);
         
-        % 3. ENERGY MANAGEMENT (ALPHA PROTECTION)
-        % This is a "Rule-Based" supervisor that overrides throttle/brakes.
+        % 3. ALPHA PROTECTION (Rule Based)
         Throttle_Cmd   = 0.0; 
         SpeedBrake_Cmd = 0.5;
         
-        % High Alpha Protection (Stall Prevention)
+        % Stall Protection
         if Current_Alpha_Deg > 12.0
-            Throttle_Cmd = 1.0; % Max Power
-            % Punish the optimizer heavily if we hit this condition.
-            % We want the PID to fly smooth enough to avoid this emergency.
-            Stall_Penalty = Stall_Penalty + 500; 
+            Throttle_Cmd = 1.0; 
+            Stall_Penalty = Stall_Penalty + 500;
         elseif Current_Alpha_Deg > 11.5
-            Throttle_Cmd = 0.5; % Pre-emptive Power
+            Throttle_Cmd = 0.5; 
         end
         
-        % Low Alpha (Drag Management)
-        if Current_Alpha_Deg < 10.0
-            SpeedBrake_Cmd = 1.0; % Add Drag to increase Alpha
-        elseif Current_Alpha_Deg > 11.0
-            SpeedBrake_Cmd = 0.0; % Remove Drag
+        % Drag Management
+        if Current_Alpha_Deg < 8.0
+            SpeedBrake_Cmd = 1.0; 
+        elseif Current_Alpha_Deg > 10.0
+            SpeedBrake_Cmd = 0.0; 
         end
         
-        % [Actuator Output]
+        % [Actuators]
         Controls.ElevatorDeflection = Elevator;
         Controls.ThrottleSetting    = Throttle_Cmd;
         Controls.SpeedBrake         = SpeedBrake_Cmd;
@@ -194,10 +159,10 @@ function J = EvaluateApproachPerformance(Gains, CP, Config, FixedGains)
         State.theta = State.theta + Derv.theta_dot*dt;
         State.q     = State.q     + Derv.q_dot*dt;
         
-        % [Cost Function]
+        % [Cost Calculation]
         Total_Gamma_Error = Total_Gamma_Error + abs(Config.Target_Gamma - Current_Gamma) * 100;
         
-        % Ground Collision Check
+        % Crash Check
         if State.z_E > 0; J = 1e15; return; end
     end
     
@@ -210,7 +175,6 @@ end
 function VisualizePerformance(Gains, CP, Config, FixedGains)
     fprintf('>> Generating Visualization...\n');
     
-    % Reconstruct Controllers
     C.Gamma.Kp = Gains(1); C.Gamma.Ki = Gains(2); C.Gamma.Kd = Gains(3);
     C.Gamma.Max = deg2rad(5.0); C.Gamma.Min = deg2rad(-10.0);
     C.Pitch = FixedGains.Pitch;
@@ -224,19 +188,20 @@ function VisualizePerformance(Gains, CP, Config, FixedGains)
     
     for k = 1:1000
         [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
-        Current_Gamma = atan2(-State.w, State.u);
-        Current_Alpha_Deg = rad2deg(State.theta - Current_Gamma);
+        
+        Current_Alpha_Rad = atan2(State.w, State.u);
+        Current_Gamma = State.theta - Current_Alpha_Rad;
+        Current_Alpha_Deg = rad2deg(Current_Alpha_Rad);
         
         [Ref_Theta, GammaState] = RunPID(Config.Target_Gamma, Current_Gamma, dt, C.Gamma, GammaState);
         Ref_Theta = max(min(Ref_Theta, C.Gamma.Max), C.Gamma.Min);
         [Elevator, PitchState] = RunPID(Ref_Theta, State.theta, dt, C.Pitch, PitchState, State.q);
         
-        % Protection Logic Replay
         Throttle_Cmd = 0.0; SpeedBrake_Cmd = 0.5;
         if Current_Alpha_Deg > 12.0, Throttle_Cmd = 1.0;
         elseif Current_Alpha_Deg > 11.5, Throttle_Cmd = 0.5; end
-        if Current_Alpha_Deg < 10.0, SpeedBrake_Cmd = 1.0;
-        elseif Current_Alpha_Deg > 11.0, SpeedBrake_Cmd = 0.0; end
+        if Current_Alpha_Deg < 8.0, SpeedBrake_Cmd = 1.0;
+        elseif Current_Alpha_Deg > 10.0, SpeedBrake_Cmd = 0.0; end
         
         Controls.ElevatorDeflection = Elevator; Controls.ThrottleSetting = Throttle_Cmd;
         Controls.SpeedBrake = SpeedBrake_Cmd; Controls.Gear = 1.0;
@@ -255,20 +220,16 @@ function VisualizePerformance(Gains, CP, Config, FixedGains)
     end
     
     figure('Name','Approach Optimization Result','Color','w');
-    
-    % 1. Flight Path Angle
     subplot(3,1,1); 
     plot(Hist_T, Hist_Gamma, 'LineWidth', 2, 'Color', [0 0.4470 0.7410]); grid on;
-    yline(rad2deg(Config.Target_Gamma), '--r', 'Target Gamma (-7 deg)', 'LineWidth', 1.5); 
+    yline(rad2deg(Config.Target_Gamma), '--r', 'Target Gamma (-4 deg)', 'LineWidth', 1.5); 
     ylabel('Gamma (deg)'); title('Flight Path Tracking');
     
-    % 2. Alpha Protection (Crucial)
     subplot(3,1,2); 
     plot(Hist_T, Hist_Alpha, 'LineWidth', 2, 'Color', [0.8500 0.3250 0.0980]); grid on;
     yline(12, '--k', 'Stall Warning (12 deg)', 'LineWidth', 1.5); 
     ylabel('Alpha (deg)'); title('AoA Envelope Protection');
     
-    % 3. Altitude Profile
     subplot(3,1,3); 
     plot(Hist_T, Hist_Alt, 'LineWidth', 2, 'Color', [0.4660 0.6740 0.1880]); grid on;
     ylabel('Altitude (m)'); xlabel('Time (s)'); title('Approach Descent Profile');
