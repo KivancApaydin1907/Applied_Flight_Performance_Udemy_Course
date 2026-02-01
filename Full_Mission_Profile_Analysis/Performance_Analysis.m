@@ -252,7 +252,7 @@ Checkpoint.Env  = Env;          % Current Atmosphere (Density, Speed of Sound)
 Checkpoint.Time = time(i);      % Simulation Clock
 Checkpoint.dt   = 0.1;          % Suggested dt for Climb (slower than rotation)
 
-% This captures the exact throttle (e.g., 0.98) used at the end of rotation
+% This captures the exact throttle (e.g., 1.0) used at the end of airborne
 Checkpoint.LastControls = Controls;
 
 save('Climb_Checkpoint.mat', 'Checkpoint');
@@ -273,16 +273,16 @@ Target_Climb_Mach  = 0.6;          % Target Mach
 Target_Pitch_Angle = deg2rad(10);  % Target Attitude
 
 % [A] PITCH CONTROLLER (Attitude Hold)
-ControlConfig.Pitch.Kp   = -35.6016; 
-ControlConfig.Pitch.Ki   =  0.0244;
-ControlConfig.Pitch.Kd   =  24.3107; 
+ControlConfig.Pitch.Kp = -35.0134;
+ControlConfig.Pitch.Ki =  0.0245;
+ControlConfig.Pitch.Kd =  24.3466;
 ControlConfig.Pitch.Max  = deg2rad(20);
 ControlConfig.Pitch.Min  = -deg2rad(20);
 
 % [B] SPEED CONTROLLER (Auto-Throttle)
-ControlConfig.Speed.Kp   =  486.1483;
-ControlConfig.Speed.Ki   =  0.0139;
-ControlConfig.Speed.Kd   = -5.4812;
+ControlConfig.Speed.Kp =  649.2745;
+ControlConfig.Speed.Ki =  -0.0015;
+ControlConfig.Speed.Kd =  2.8893;
 ControlConfig.Speed.Max  = 1.0;          
 ControlConfig.Speed.Min  = 0.0;         
 ControlConfig.Speed.Base = 0.5212; 
@@ -339,8 +339,6 @@ while -z_E(i) < 11000
 end
 MissionMarkers.Climb_End = i;
 
-% ... End of Phase 5 While Loop ...
-
 %% ========================================================================
 %  CHECKPOINT: SAVE STATE FOR CRUISE TUNER
 %  ========================================================================
@@ -350,7 +348,7 @@ Checkpoint.AC   = AC;
 Checkpoint.Env  = Env;
 Checkpoint.Time = time(i);
 Checkpoint.dt   = 0.1;
-Checkpoint.LastControls = Controls; % <--- Crucial for bumpless transfer
+Checkpoint.LastControls = Controls; 
 
 save('Cruise_Checkpoint.mat', 'Checkpoint');
 fprintf('>> Checkpoint saved to "Cruise_Checkpoint.mat" (t = %.2f s)\n', time(i));
@@ -373,23 +371,23 @@ Target_Mach = 0.8;          % [Mach] Cruise Speed
 ControlConfig.Alt.Kp   =  0.00157706;   
 ControlConfig.Alt.Ki   =  0.00011752;   
 ControlConfig.Alt.Kd   = -0.00210368;     
-ControlConfig.Alt.Max  = deg2rad(10);  
-ControlConfig.Alt.Min  = deg2rad(-5);  
+ControlConfig.Alt.Max  =  deg2rad(5);
+ControlConfig.Alt.Min  = -deg2rad(5);    
 
 % [B] PITCH CONTROLLER (Inner Loop)
 ControlConfig.Pitch.Kp  = -35.6016;   
 ControlConfig.Pitch.Ki  =  0.0244;   
-ControlConfig.Pitch.Kd  =  24.3107;   
+ControlConfig.Pitch.Kd  =  24.3107;    
 ControlConfig.Pitch.Max = deg2rad(20);
 ControlConfig.Pitch.Min = -deg2rad(20);
 
 % [C] SPEED CONTROLLER (Auto-Throttle)
-ControlConfig.Speed.Kp   =  486.1483;
-ControlConfig.Speed.Ki   =  0.0139;
-ControlConfig.Speed.Kd   = -5.4812;
+ControlConfig.Speed.Kp   =  649.2745;
+ControlConfig.Speed.Ki   = -0.0015;
+ControlConfig.Speed.Kd   =  2.8893;
 ControlConfig.Speed.Max  = 1.0;
 ControlConfig.Speed.Min  = 0.0;
-ControlConfig.Speed.Base = 0.2991;  
+ControlConfig.Speed.Base = 0.1997;  
 
 % --- STATE INITIALIZATION ---
 AltState   = struct('Integrator', 0, 'PrevError', 0);
@@ -424,7 +422,6 @@ while m(i) > Target_Mass_End
     current_alt   = -z_E(i+1);
     V_current     = sqrt(u(i+1)^2 + w(i+1)^2);
     current_mach  = V_current / Env.a;
-    V_E_Matrix    = [u(i+1); w(i+1)];
 
     % [Control Logic]
     % 1. Outer Loop (Altitude -> Pitch Ref)
@@ -443,8 +440,7 @@ while m(i) > Target_Mass_End
 
     % [Physics]
     State = struct('m', m(i+1), 'x_E', x_E(i+1), 'z_E', z_E(i+1), ...
-               'u', u(i+1), 'w', w(i+1), 'theta', theta(i+1), 'q', q(i+1), ...
-               'V_E_Matrix', V_E_Matrix);
+               'u', u(i+1), 'w', w(i+1), 'theta', theta(i+1), 'q', q(i+1));
     Output = FlightDynamics(State, AC, Env, Controls);
 
     i = i + 1; 
@@ -481,9 +477,9 @@ Target_Alt_End = 500; % [m] Hand-off altitude
 
 % --- CONTROLLER CONFIGURATION ---
 % [A] ALPHA CONTROLLER (Outer Loop)
-ControlConfig.Alpha.Kp   = 0.501137;   
-ControlConfig.Alpha.Ki   = 0.020613;
-ControlConfig.Alpha.Kd   = 0.685845;   
+ControlConfig.Alpha.Kp   = 0.537675;   
+ControlConfig.Alpha.Ki   = 0.009969;
+ControlConfig.Alpha.Kd   = 0.043239;    
 ControlConfig.Alpha.Min  = deg2rad(-10); 
 ControlConfig.Alpha.Max  = deg2rad(10);  
 
@@ -521,6 +517,7 @@ while -z_E(i) > Target_Alt_End
     current_theta = theta(i+1);
     current_q     = q(i+1);
     current_alpha = atan2(current_w, current_u);
+    current_gamma = current_theta - current_alpha;
 
     % [Control Logic]
     % 1. Outer Loop: Alpha -> Ref Theta
@@ -548,6 +545,11 @@ while -z_E(i) > Target_Alt_End
          fprintf('>> DESCENT COMPLETE. H: %.1f m, V: %.1f kts\n', -z_E(i), V_Total*1.94);
          break;
     end
+    % if mod(i, 10) == 0  % Print every 50 steps
+    % fprintf('Alt: %.0f m | α: %.2f° (target: %.2f°) | θ: %.2f° | γ: %.2f° | δe: %.2f°\n', ...
+    %     -z_E(i), rad2deg(current_alpha), rad2deg(Target_Alpha), ...
+    %     rad2deg(current_theta), rad2deg(current_gamma), rad2deg(delta_cmd));
+    % end
 end
 
 %% ========================================================================
@@ -558,39 +560,41 @@ Checkpoint.StateVector = struct('m',m(i),'x_E',x_E(i),'z_E',z_E(i),...
 Checkpoint.AC   = AC;
 Checkpoint.Env  = Env;
 Checkpoint.Time = time(i);
-Checkpoint.dt   = 0.01; % Note: User requested 0.01s for precision here
+Checkpoint.dt   = 0.01;
 
 save('Approach_Checkpoint.mat', 'Checkpoint');
 fprintf('>> Checkpoint saved to "Approach_Checkpoint.mat" (t = %.2f s)\n', time(i));
 
+
 %% ========================================================================
 %  PHASE 8: CONSTRAINED APPROACH (GAMMA / ALPHA LOGIC)
 %  ========================================================================
-%  Objective: Track -7 deg Gamma while limiting Alpha < 12 deg.
+%  Objective: Track -4 deg Gamma while limiting Alpha < 12 deg.
 %  Strategy:  Pitch controls Gamma. Energy managed via Brakes/Throttle.
 % -------------------------------------------------------------------------
 fprintf('Phase 08: Constrained Approach (Gamma -7 / Max Alpha 12)...\n');
 dt = 0.01; 
-Handoff_Height = 15; % [m] Transition to Flare
+Handoff_Height = 30; % [m] Transition to Flare
 
 % --- CONTROLLER CONFIGURATION ---
 % [A] GAMMA CONTROLLER (Outer Loop)
-ControlConfig.Gamma.Kp   = 0.551280;
-ControlConfig.Gamma.Ki   = 0.047474;
-ControlConfig.Gamma.Kd   = 0.318696;
+ControlConfig.Gamma.Kp   = 0.516779;
+ControlConfig.Gamma.Ki   = 0.037596;
+ControlConfig.Gamma.Kd   = 0.385513;
 ControlConfig.Gamma.Max  = deg2rad(5.0); 
 ControlConfig.Gamma.Min  = deg2rad(-10.0);
 
 % [B] PITCH CONTROLLER (Inner Loop)
-ControlConfig.Pitch.Kp  = -35.6016;   
-ControlConfig.Pitch.Ki  =  0.0244;   
-ControlConfig.Pitch.Kd  =  24.3107;   
+ControlConfig.Pitch.Kp = -35.0134;
+ControlConfig.Pitch.Ki =  0.0245;
+ControlConfig.Pitch.Kd =  24.3466;  
 ControlConfig.Pitch.Max = deg2rad(20);
 ControlConfig.Pitch.Min = -deg2rad(20);
 
 % --- STATE INITIALIZATION ---
+PitchState = struct('Integrator', 0, 'PrevError', 0);
 GammaState   = struct('Integrator', 0, 'PrevError', 0);
-Target_Gamma = deg2rad(-7.0); 
+Target_Gamma = deg2rad(-4.0); 
 
 % --- SIMULATION LOOP ---
 while -z_E(i) > Handoff_Height
@@ -613,19 +617,17 @@ while -z_E(i) > Handoff_Height
     current_w     = w(i+1);
     current_theta = theta(i+1); 
     current_q     = q(i+1);
-    current_gamma = atan2(-current_w, current_u);
-    current_alpha = current_theta - current_gamma;
+    current_alpha = atan2(-current_w, current_u);
+    current_gamma = current_theta - current_alpha;
     Alpha_Deg     = rad2deg(current_alpha);
 
     % [Control Logic]
     % 1. Flight Path Control (Gamma -> Pitch)
     [Ref_Theta, GammaState] = RunPID(Target_Gamma, current_gamma, dt, ...
                                      ControlConfig.Gamma, GammaState);
-    % Safety Limiter
-    Ref_Theta = max(min(Ref_Theta, deg2rad(5.0)), deg2rad(-10));
 
     % 2. Attitude Control (Pitch -> Elevator)
-    [Elevator, PitchState] = RunPID(Ref_Theta, current_theta, dt, ...
+    [delta_cmd, PitchState] = RunPID(Ref_Theta, current_theta, dt, ...
                                     ControlConfig.Pitch, PitchState, current_q);
 
     % 3. Energy Management (Alpha Limiter Logic)
@@ -640,7 +642,7 @@ while -z_E(i) > Handoff_Height
     elseif Alpha_Deg > 11.0, SpeedBrake_Cmd = 0.0;
     end
 
-    Controls.ElevatorDeflection = Elevator;
+    Controls.ElevatorDeflection = delta_cmd;
     Controls.ThrottleSetting    = Throttle_Cmd;
     Controls.SpeedBrake         = SpeedBrake_Cmd;
     Controls.Gear               = 1.0; 
@@ -653,6 +655,12 @@ while -z_E(i) > Handoff_Height
     i = i + 1; SimLog(i) = Output;
 
     if Alpha_Deg > 18, fprintf('!! HARD STALL !!\n'); break; end
+    
+    % if mod(i, 10) == 0  % Print every 50 steps
+    % fprintf('Alt: %.0f m | α: %.2f° (target: %.2f°) | θ: %.2f° | γ: %.2f° | δe: %.2f°\n', ...
+    %     -z_E(i), rad2deg(current_alpha), rad2deg(Target_Alpha), ...
+    %     rad2deg(current_theta), rad2deg(current_gamma), rad2deg(delta_cmd));
+    % end   
 end
 fprintf('==============================================\n');
 fprintf(' >> PHASE 8 COMPLETE (APPROACH).\n');
@@ -661,45 +669,34 @@ fprintf('==============================================\n');
 MissionMarkers.Descent_End = i;
 
 %% ========================================================================
-%  CHECKPOINT: SAVE STATE FOR FLARE TUNER
-%  ========================================================================
-Checkpoint.StateVector = struct('m',m(i),'x_E',x_E(i),'z_E',z_E(i),...
-                                'u',u(i),'w',w(i),'theta',theta(i),'q',q(i));
-Checkpoint.AC   = AC;
-Checkpoint.Env  = Env;
-Checkpoint.Time = time(i);
-Checkpoint.dt   = 0.01; % Use small time steps for landing precision
-
-save('Flare_Checkpoint.mat', 'Checkpoint');
-fprintf('>> Checkpoint saved to "Flare_Checkpoint.mat" (t = %.2f s)\n', time(i));
-
-%% ========================================================================
 %  PHASE 9: PRECISION FLARE
 %  ========================================================================
 %  Objective: Arrest sink rate to < 2.0 m/s for safe touchdown.
-%  Strategy:  Static Pitch Hold + PD Throttle Controller.
+%  Strategy:  Static Pitch Hold + PID Throttle Controller.
 % -------------------------------------------------------------------------
-fprintf('Phase 09: Precision Flare (Safe Mode)...\n');
+fprintf('Phase 09: Precision Flare...\n');
 
 % --- CONTROLLER CONFIGURATION ---
 % [A] THROTTLE CONTROLLER (Sink Rate)
-ControlConfig.Throttle.Kp   = -0.2264;
-ControlConfig.Throttle.Kd   = -0.7180;
-ControlConfig.Throttle.Base =  0.6978; 
-ControlConfig.Throttle.Max  = 1.0;
-ControlConfig.Throttle.Min  = 0.0;
+ControlConfig.Throttle.Kp   = 0.0592;
+ControlConfig.Throttle.Ki   = 0.0085;
+ControlConfig.Throttle.Kd   = 0.0147;
+ControlConfig.Throttle.Base =  0.5138; 
+ControlConfig.Throttle.Max  =  1.0;
+ControlConfig.Throttle.Min  =  0.0;
 
 % [B] PITCH CONTROLLER (Inner Loop)
-ControlConfig.Pitch.Kp   = -11.6687;
-ControlConfig.Pitch.Ki   =  0.1198; 
-ControlConfig.Pitch.Kd   =  16.7304;   
-ControlConfig.Pitch.Max = deg2rad(20);
+ControlConfig.Pitch.Kp  = -4.5945;
+ControlConfig.Pitch.Ki  =  0.0226; 
+ControlConfig.Pitch.Kd  =  14.2681;   
+ControlConfig.Pitch.Max =  deg2rad(20);
 ControlConfig.Pitch.Min = -deg2rad(20);
 
 % --- STATE & TARGETS ---
-Prev_Sink_Error = 0; 
-Target_Theta    = deg2rad(6.0); % Landing Attitude
-Target_SinkRate = -1.2;          % [m/s] 
+PitchState = struct('Integrator', 0, 'PrevError', 0);
+ThrotState = struct('Integrator', 0, 'PrevError', 0); 
+Target_Theta    = deg2rad(6.5);  % Landing Attitude
+Target_SinkRate = -0.6;          % [m/s] 
 
 % --- SIMULATION LOOP ---
 while -z_E(i) > 0.1
@@ -725,19 +722,10 @@ while -z_E(i) > 0.1
 
     % [Control Logic]
     % 1. Throttle (Sink Rate Control)
-    Sink_Error = Current_SinkRate - Target_SinkRate;
-    D_Term = (Sink_Error - Prev_Sink_Error) / dt;
-    Prev_Sink_Error = Sink_Error;
-
-    Throttle_Cmd = ControlConfig.Throttle.Base ...
-                 + (ControlConfig.Throttle.Kp * Sink_Error) ...
-                 + (ControlConfig.Throttle.Kd * D_Term);
-
-    Throttle_Cmd = max(min(Throttle_Cmd, ControlConfig.Throttle.Max), ...
-                         ControlConfig.Throttle.Min);
-
+    [Throttle_Cmd, ThrotState] = RunPID(Target_SinkRate, Current_SinkRate, dt, ...
+                                        ControlConfig.Throttle, ThrotState);
     % Cut power right before touchdown
-    if Current_Alt < 0.2, Throttle_Cmd = 0.0; end
+    if Current_Alt < 0.3, Throttle_Cmd = 0.0; end
 
     % 2. Pitch (Attitude Hold)
     [Elevator_Cmd, PitchState] = RunPID(Target_Theta, current_theta, dt, ...
@@ -793,12 +781,13 @@ fprintf('>> Checkpoint saved to "Derotation_Checkpoint.mat" (t = %.2f s)\n', tim
 % -------------------------------------------------------------------------
 fprintf('Phase 10: Derotation (Nose Lowering)...\n');
 
+z_E(i) = 0;
 % --- CONFIGURATION ---
-Target_Derot_Theta      = deg2rad(-0.1);
-ControlConfig.Derot.Kp  = -1.51712;             
-ControlConfig.Derot.Ki  = -0.0;             
-ControlConfig.Derot.Kd  = -3.80758;             
-ControlConfig.Derot.Max =  deg2rad(10);     
+Target_Derot_Theta      =  0;
+ControlConfig.Derot.Kp  = -3.26077;             
+ControlConfig.Derot.Ki  =  0.0;             
+ControlConfig.Derot.Kd  =  2.78721 ;             
+ControlConfig.Derot.Max =  deg2rad(20);     
 ControlConfig.Derot.Min = -deg2rad(20);     
 
 DerotState = struct('Integrator', 0, 'PrevError', 0);
@@ -886,8 +875,8 @@ while SimLog(i).States.V > 0.5
     Env.mu  = Mu_Braking;
 
     % [Control Logic]
-    % Stick full forward (15 deg) to load nose gear
-    Controls.ElevatorDeflection = deg2rad(15); 
+    % Stick full forward (20 deg) to load nose gear
+    Controls.ElevatorDeflection = deg2rad(20); 
     Controls.ThrottleSetting    = 0.0;
     Controls.SpeedBrake         = 1.0; 
     Controls.Gear               = 1.0;
@@ -1040,3 +1029,88 @@ title('Mission Trajectory (Profile View)');
 xlabel('Distance (km)'); ylabel('Altitude (m)'); 
 xlim([0, max(x_E/1000)*1.01]); 
 grid on; grid minor;
+
+%% ========================================================================
+%  INTERACTIVE POP-OUT MODULE
+% =========================================================================
+%  Description: 
+%     Enables "Click-to-Expand" functionality for all subplots.
+%     Clicking on any specific graph opens it in a new, dedicated window 
+%     for detailed inspection without affecting the main dashboard.
+% =========================================================================
+
+% 1. Retrieve all axes handles within the active figure
+all_axes = findall(gcf, 'Type', 'axes');
+
+% 2. Assign the callback function to each axis and its children (lines)
+for i = 1:length(all_axes)
+    % Attach listener to the axis background
+    all_axes(i).ButtonDownFcn = @expandChart;
+    
+    % Attach listener to the plotted data elements (lines, patches, etc.)
+    % This ensures the click registers even if the user clicks directly on a line.
+    set(all_axes(i).Children, 'ButtonDownFcn', @expandChart); 
+end
+
+fprintf('>> VISUALIZATION: Interactive Mode Enabled. Click on any plot to inspect in detail.\n');
+
+% =========================================================================
+%  LOCAL FUNCTION: EXPAND CHART CALLBACK
+% =========================================================================
+function expandChart(src, ~)
+    % expandChart - Callback function to handle mouse clicks on plots.
+    %
+    % Inputs:
+    %   src : The graphic object that was clicked (Axis object or Primitive).
+    %   ~   : Event data (unused).
+    
+    % --- 1. Identify Target Axis ---
+    % If the user clicks on a Line/Surface, get its Parent (the Axis).
+    % If the user clicks on the whitespace, the src is already the Axis.
+    if isa(src, 'matlab.graphics.chart.primitive.Line') || ...
+       isa(src, 'matlab.graphics.chart.primitive.Surface') || ...
+       isa(src, 'matlab.graphics.chart.primitive.Patch')
+        target_ax = src.Parent;
+    else
+        target_ax = src;
+    end
+    
+    % --- 2. Create New Detailed View Window ---
+    % Initialize a new figure with Dark Mode styling to match the theme.
+    f_new = figure('Color', [0.15 0.15 0.15], ...
+                   'Name', 'Detailed Analysis View', ...
+                   'NumberTitle', 'off', ...
+                   'MenuBar', 'figure', ... % Keep standard menu for saving/printing
+                   'ToolBar', 'auto', ...
+                   'Units', 'normalized', ...
+                   'Position', [0.15 0.15 0.7 0.7]); % Center screen, 70% scale
+    
+    % --- 3. Clone the Graph ---
+    % Copy the target axis object into the new figure.
+    ax_new = copyobj(target_ax, f_new);
+    
+    % --- 4. Adjust Layout & Styling ---
+    % Reset position to fill the new figure (detach from tiled layout constraints)
+    ax_new.Position = [0.10 0.12 0.85 0.80];
+    
+    if isprop(ax_new, 'Layout')
+        ax_new.Layout = []; % Clear previous tile configuration
+    end
+    
+    % Enhance visibility for detailed inspection
+    ax_new.FontSize = 13; % Larger font for readability
+    if ~isempty(ax_new.Title)
+        ax_new.Title.FontSize = 15;
+        ax_new.Title.Color = [1 1 1]; % Ensure title is white
+    end
+    
+    % Preserve high-contrast colors
+    ax_new.XColor = [0.9 0.9 0.9];
+    ax_new.YColor = [0.9 0.9 0.9];
+    ax_new.GridAlpha = 0.3;
+    ax_new.MinorGridAlpha = 0.1;
+    
+    % Force grids on
+    grid(ax_new, 'on'); 
+    grid(ax_new, 'minor');
+end
