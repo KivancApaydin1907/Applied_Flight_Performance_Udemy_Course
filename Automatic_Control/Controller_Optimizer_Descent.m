@@ -12,8 +12,9 @@
 %
 %     Objective:
 %     - Maintain a high Angle of Attack (8.0 deg) to maximize induced drag.
-%     - Keep Throttle at IDLE (0%) and Speed Brakes FULL (100%).
-%     - Prevent "Ballooning" (unintended climbing) during the transition.
+%     - Minimize Control Jitter (High Frequency Oscillation).
+%     - Eliminate Overshoot (Integral Windup Prevention).
+%     - Prevent "Ballooning" (unintended climbing).
 %
 %     Control Architecture (Cascade):
 %     1. Outer Loop (Alpha Controller):
@@ -49,19 +50,19 @@ TunerConfig.Target_Alpha = deg2rad(8.0); % [rad] Target AoA for High Drag Descen
 
 % --- INHERITED GAINS (FROZEN) ---
 % Using the robust pitch gains obtained from the Climb/Cruise analysis.
-Inherited.Pitch.Kp = -18.0340;  
-Inherited.Pitch.Ki =  0.0807;
-Inherited.Pitch.Kd =  9.2617;
+Inherited.Pitch.Kp = -35.6016;     
+Inherited.Pitch.Ki =  0.0244;   
+Inherited.Pitch.Kd =  24.3107; 
 
 % --- OPTIMIZATION VECTOR ---
 % G(1-3): Alpha PID [Kp, Ki, Kd]
-% Initial Guess Logic: 
-% Kp should be positive (If Alpha is Low -> Pitch Up -> Theta Ref Increase)
-InitialGuess = [1.0, 0.1, 0.5]; 
+% Kp (Medium), Ki (Very Low -> Anti-Windup), Kd (Low -> Anti-Jitter)
+InitialGuess = [0.5, 0.01, 0.1]; 
 
-% Solver Options
+% --- SOLVER OPTIONS ---
 Opts = optimset('Display', 'iter', ...
-                'MaxIter', 400, ...
+                'MaxIter', 500, ... 
+                'MaxFunEvals', 2000, ...
                 'TolX', 1e-4, ...
                 'TolFun', 1e-4);
 
@@ -69,9 +70,9 @@ Opts = optimset('Display', 'iter', ...
 %  2. EXECUTE OPTIMIZATION
 %  ========================================================================
 fprintf('>> Starting Optimization Loop (Minimize Tracking Error + Ballooning)...\n');
+fprintf('>> Objectives: Smoothness > speed, No Overshoot.\n');
 
 CostFunc = @(Gains) EvaluateDescentPerformance(Gains, Checkpoint, TunerConfig, Inherited);
-
 [OptimalGains, MinCost] = fminsearch(CostFunc, InitialGuess, Opts);
 
 %% ========================================================================
@@ -94,7 +95,6 @@ VisualizePerformance(OptimalGains, Checkpoint, TunerConfig, Inherited);
 %  LOCAL FUNCTION: COST FUNCTION EVALUATION
 %  ========================================================================
 function J = EvaluateDescentPerformance(Gains, CP, Config, FixedGains)
-
     % --- 1. SETUP CONTROLLERS ---
     % [A] Alpha Controller (Tuning Variables)
     C.Alpha.Kp  = Gains(1); 
@@ -102,21 +102,18 @@ function J = EvaluateDescentPerformance(Gains, CP, Config, FixedGains)
     C.Alpha.Kd  = Gains(3);
     C.Alpha.Max = deg2rad(15); % Max Pitch Reference Command
     C.Alpha.Min = deg2rad(-15);
-
+    
     % [B] Pitch Controller (Fixed / Inner Loop)
-    C.Pitch.Kp  = FixedGains.Pitch.Kp;
-    C.Pitch.Ki  = FixedGains.Pitch.Ki;
-    C.Pitch.Kd  = FixedGains.Pitch.Kd;
+    C.Pitch = FixedGains.Pitch;
     C.Pitch.Max = deg2rad(20); 
     C.Pitch.Min = -deg2rad(20);
-
+    
     % --- 2. FEASIBILITY CHECKS ---
-    % Physics Check: Kp must be positive for this cascade logic.
-    % (Low Alpha -> Error Positive -> Positive Gain -> Pitch Up Request)
-    if C.Alpha.Kp < 0 || C.Alpha.Ki < 0 || C.Alpha.Kd < 0
+    % Physics Check: Kp must be positive.
+    if any(Gains < 0)
          J = 1e15; return; 
     end
-
+    
     % --- 3. SIMULATION INITIALIZATION ---
     State = CP.StateVector; AC = CP.AC; Env = CP.Env; 
     dt = 0.1;
@@ -125,14 +122,14 @@ function J = EvaluateDescentPerformance(Gains, CP, Config, FixedGains)
     PitchState = struct('Integrator', 0, 'PrevError', 0);
     
     % Cost Accumulators
-    Total_Alpha_Error   = 0; 
+    Total_Error_Cost    = 0; 
     Climb_Penalty       = 0;     
     Oscillation_Penalty = 0; 
+    Overshoot_Penalty   = 0;
     
-    Start_Alt = -State.z_E; % Reference for Ballooning Check
+    Start_Alt = -State.z_E; 
     MaxSteps  = 600; 
-    
-    Prev_Cmd = 0; % For smoothness calculation
+    Prev_Cmd = 0; 
     
     % --- 4. FLIGHT LOOP ---
     for k = 1:MaxSteps
@@ -140,20 +137,14 @@ function J = EvaluateDescentPerformance(Gains, CP, Config, FixedGains)
         [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
         Current_Alpha = atan2(State.w, State.u);
         
-        % --- CASCADE CONTROL LOGIC ---
+        % [Control Logic]
+        [Ref_Theta, AlphaState] = RunPID(Config.Target_Alpha, Current_Alpha, dt, C.Alpha, AlphaState);
+        [Delta_Cmd, PitchState] = RunPID(Ref_Theta, State.theta, dt, C.Pitch, PitchState, State.q);
         
-        % 1. OUTER LOOP: Alpha -> Pitch Reference
-        [Ref_Theta, AlphaState] = RunPID(Config.Target_Alpha, Current_Alpha, dt, ...
-                                         C.Alpha, AlphaState);
-                                     
-        % 2. INNER LOOP: Pitch Reference -> Elevator
-        [Delta_Cmd, PitchState] = RunPID(Ref_Theta, State.theta, dt, ...
-                                         C.Pitch, PitchState, State.q);
-        
-        % [Actuator Configuration for Descent]
+        % [Actuators]
         Controls.ElevatorDeflection = Delta_Cmd;
         Controls.ThrottleSetting    = 0.0; % Idle
-        Controls.SpeedBrake         = 1.0; % Full Drag Devices
+        Controls.SpeedBrake         = 1.0; % Full Drag
         Controls.Gear               = 0.0;
         
         % [Physics]
@@ -168,30 +159,39 @@ function J = EvaluateDescentPerformance(Gains, CP, Config, FixedGains)
         State.theta = State.theta + Derv.theta_dot*dt;
         State.q     = State.q     + Derv.q_dot*dt;
         
-        % --- COST CALCULATION ---
+        % --- COST CALCULATION (REVISED LOGIC) ---
         
-        % 1. Tracking Error (Weighted)
-        Total_Alpha_Error = Total_Alpha_Error + abs(Config.Target_Alpha - Current_Alpha) * 10;
+        Error = Config.Target_Alpha - Current_Alpha;
         
-        % 2. TRAJECTORY MONOTONICITY (Prevent "Ballooning")
-        % If the aircraft climbs above its starting altitude, penalize heavily.
-        Current_Alt = -State.z_E;
-        if Current_Alt > (Start_Alt + 5) % 5m buffer for sensor noise/gusts
-            Climb_Penalty = Climb_Penalty + (Current_Alt - Start_Alt) * 1000;
+        % 1. Tracking Error (Time Weighted)
+        % We forgive initial errors, but punish steady-state errors heavily.
+        Time_Weight = (k / MaxSteps)^2; 
+        Total_Error_Cost = Total_Error_Cost + abs(Error) * 100 * Time_Weight;
+        
+        % 2. OVERSHOOT PENALTY (Anti-Windup)
+        % If Alpha exceeds Target by 0.5 deg, apply massive penalty.
+        % This forces Ki to stay low.
+        if Current_Alpha > (Config.Target_Alpha + deg2rad(0.5))
+            Overshoot_Penalty = Overshoot_Penalty + abs(Error) * 5000;
         end
         
-        % 3. CONTROL SMOOTHNESS
-        % Penalize high frequency oscillation in elevator command
+        % 3. BALLOONING (Trajectory Monotonicity)
+        Current_Alt = -State.z_E;
+        if Current_Alt > (Start_Alt + 2) && k > 50 
+            Climb_Penalty = Climb_Penalty + (Current_Alt - Start_Alt) * 500;
+        end
+        
+        % 4. CONTROL SMOOTHNESS (Anti-Jitter)
         if k > 1
-             Oscillation_Penalty = Oscillation_Penalty + abs(Delta_Cmd - Prev_Cmd) * 100;
+             Oscillation_Penalty = Oscillation_Penalty + abs(Delta_Cmd - Prev_Cmd) * 500;
         end
         Prev_Cmd = Delta_Cmd;
         
-        % Safety Termination (Ground Collision)
+        % Safety Termination
         if State.z_E > 0; J = 1e15; return; end
     end
     
-    J = Total_Alpha_Error + Climb_Penalty + Oscillation_Penalty;
+    J = Total_Error_Cost + Climb_Penalty + Oscillation_Penalty + Overshoot_Penalty;
 end
 
 %% ========================================================================
@@ -200,7 +200,6 @@ end
 function VisualizePerformance(Gains, CP, Config, FixedGains)
     fprintf('>> Generating Visualization...\n');
     
-    % Reconstruct Controllers
     C.Alpha.Kp = Gains(1); C.Alpha.Ki = Gains(2); C.Alpha.Kd = Gains(3);
     C.Alpha.Max = deg2rad(15); C.Alpha.Min = deg2rad(-15);
     
@@ -221,46 +220,41 @@ function VisualizePerformance(Gains, CP, Config, FixedGains)
         [Delta_Cmd, PitchState] = RunPID(Ref_Theta, State.theta, dt, C.Pitch, PitchState, State.q);
         
         Controls.ElevatorDeflection = Delta_Cmd;
-        Controls.ThrottleSetting    = 0.0; 
-        Controls.SpeedBrake         = 1.0; 
-        Controls.Gear               = 0.0;
+        Controls.ThrottleSetting = 0.0; Controls.SpeedBrake = 1.0; Controls.Gear = 0.0;
         
         Log = FlightDynamics(State, AC, Env, Controls);
         Derv = Log.Derivatives;
         
-        State.x_E   = State.x_E   + Derv.x_dot_E*dt;
-        State.z_E   = State.z_E   + Derv.z_dot_E*dt;
-        State.u     = State.u     + Derv.u_dot*dt;
-        State.w     = State.w     + Derv.w_dot*dt;
+        State.x_E = State.x_E + Derv.x_dot_E*dt;
+        State.z_E = State.z_E + Derv.z_dot_E*dt;
+        State.u   = State.u   + Derv.u_dot*dt;
+        State.w   = State.w   + Derv.w_dot*dt;
         State.theta = State.theta + Derv.theta_dot*dt;
-        State.q     = State.q     + Derv.q_dot*dt;
+        State.q   = State.q   + Derv.q_dot*dt;
         
-        Hist_T(k)     = k*dt;
+        Hist_T(k) = k*dt;
         Hist_Alpha(k) = rad2deg(Current_Alpha);
         Hist_Theta(k) = rad2deg(State.theta);
-        Hist_Alt(k)   = -State.z_E;
+        Hist_Alt(k) = -State.z_E;
         
         if State.z_E > 0, break; end
     end
     
     figure('Name','Descent Optimization Result','Color','w');
     
-    % Plot 1: Angle of Attack (Target vs Actual)
     subplot(3,1,1); 
     plot(Hist_T, Hist_Alpha, 'LineWidth', 2, 'Color', [0.8500 0.3250 0.0980]); grid on;
     yline(rad2deg(Config.Target_Alpha), '--k', 'Target AoA (8.0 deg)', 'LineWidth', 1.5); 
     ylabel('Angle of Attack \alpha (deg)'); 
     title('Descent Mode: AoA Hold Performance');
     
-    % Plot 2: Pitch Attitude (The Control Input)
     subplot(3,1,2); 
     plot(Hist_T, Hist_Theta, 'LineWidth', 2, 'Color', [0 0.4470 0.7410]); grid on;
     ylabel('Pitch Attitude \theta (deg)'); 
     title('Inner Loop Response');
     
-    % Plot 3: Trajectory (Altitude)
     subplot(3,1,3); 
     plot(Hist_T, Hist_Alt, 'LineWidth', 2, 'Color', [0.4660 0.6740 0.1880]); grid on;
     ylabel('Altitude (m)'); xlabel('Time (s)');
-    title('Descent Trajectory (Ideally Monotonic)');
+    title('Descent Trajectory');
 end
