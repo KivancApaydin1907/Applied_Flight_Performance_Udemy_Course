@@ -19,8 +19,8 @@
 %       authority is lost due to decelerating airspeed.
 %
 %     Control Strategy (Active Damping):
-%     - The elevator is used to generate a nose-up moment that opposes the 
-%       gravity-induced nose drop, cushioning the impact.
+%     - The elevator is used to generate a nose-down moment for nose-down
+%     motion. The gravitational effects to the nose is ignored.
 %
 %  DEPENDENCIES:
 %     - FlightDynamics.m
@@ -43,15 +43,14 @@ load('Derotation_Checkpoint.mat', 'Checkpoint');
 fprintf('>> Checkpoint Loaded. Touchdown Time: %.2f s\n', Checkpoint.Time);
 
 % --- TUNER TARGETS ---
-TunerConfig.Target_Theta    = deg2rad(-0.1); % [rad] Geometric Zero (Nose on ground)
-TunerConfig.Impact_Limit_Q  = -0.05;         % [rad/s] ~3 deg/s (Structural Limit)
+TunerConfig.Target_Theta    =  0;    % [rad] Geometric Zero
+TunerConfig.Impact_Limit_Q  = -0.04; % [rad/s] ~2.3 deg/s (Structural Limit is ~3 deg/s)
 
 % --- OPTIMIZATION VECTOR ---
 % G(1): Kp (Proportional) -> Position Error Gain (Guide to 0)
 % G(2): Ki (Integral)     -> Locked to 0 (Not needed for transient event)
 % G(3): Kd (Derivative)   -> Damping Gain (The "Shock Absorber")
-% Initial Guess: High Kd expected to fight gravity acceleration.
-InitialGuess = [-1.5, 0.0, -4.0]; 
+InitialGains = [-0.5, 0.0, 25.0]; 
 
 % Solver Options
 Opts = optimset('Display', 'iter', ...
@@ -77,9 +76,9 @@ fprintf('==========================================================\n');
 fprintf('Final Cost: %.4f\n', MinCost);
 fprintf('----------------------------------------------------------\n');
 fprintf('DEROTATION CONTROLLER (Active Damping):\n');
-fprintf('   Kp: %8.5f [Position Guide]\n', OptimalGains(1));
+fprintf('   Kp: %8.5f \n', OptimalGains(1));
 fprintf('   Ki: %8.5f [Locked]\n', 0.0);
-fprintf('   Kd: %8.5f [Virtual Damper]\n', OptimalGains(3));
+fprintf('   Kd: %8.5f \n', OptimalGains(3));
 fprintf('==========================================================\n');
 
 VisualizeResult(OptimalGains, Checkpoint, TunerConfig);
@@ -95,18 +94,18 @@ function J = EvaluateDerotationPerformance(Gains, CP, Config)
     C.Kd  = Gains(3);
     
     % Authority Limits
-    C.Max = deg2rad(10);  % Don't pitch up excessively (tailstrike risk)
-    C.Min = -deg2rad(20); % Full trailing edge up authority available
+    C.Max = deg2rad(20);  
+    C.Min = -deg2rad(20); 
     
     % --- 2. SIMULATION SETUP ---
     State = CP.StateVector; AC = CP.AC; Env = CP.Env; dt = CP.dt;
     PIDState = struct('Integrator', 0, 'PrevError', 0);
     
     % Configuration for Ground Roll
-    Controls = struct('ElevatorDeflection',0, ...
-                      'ThrottleSetting',   0.0, ... % Idle
-                      'Gear',              1.0, ... % Down
-                      'SpeedBrake',        1.0);    % Deployed (Max Drag)
+    Controls = struct('ElevatorDeflection', 0, ...
+                      'ThrottleSetting',    0.0, ... % Idle
+                      'Gear',               1.0, ... % Down
+                      'SpeedBrake',         1.0);    % Deployed (Max Drag)
     
     Step = 0; 
     MaxSteps = 600; % Time-out limit
@@ -167,8 +166,8 @@ function J = EvaluateDerotationPerformance(Gains, CP, Config)
     % CONSTRAINT: Impact Pitch Rate must be > -0.05 rad/s (-3 deg/s)
     % Note: Q is negative when pitching down.
     if Impact_Q < Config.Impact_Limit_Q
-        % Exponential Penalty for breaking the nose gear
-        Slam_Penalty = 1e6 * abs(Impact_Q - Config.Impact_Limit_Q);
+        % Penalty for breaking the nose gear
+        Slam_Penalty = 2e6 * abs(Impact_Q - Config.Impact_Limit_Q);
     end
     
     % Timeout Penalty (Floating Nose)
@@ -188,7 +187,7 @@ function VisualizeResult(Gains, CP, Config)
     
     % Reconstruct Controller
     C.Kp = Gains(1); C.Ki = 0; C.Kd = Gains(3);
-    C.Max = deg2rad(10); C.Min = -deg2rad(20); 
+    C.Max = deg2rad(20); C.Min = -deg2rad(20); 
     
     State = CP.StateVector; AC = CP.AC; Env = CP.Env; dt = CP.dt;
     PIDState = struct('Integrator', 0, 'PrevError', 0);
@@ -235,7 +234,7 @@ function VisualizeResult(Gains, CP, Config)
     % 2. Pitch Rate (Impact Force)
     subplot(3,1,2); 
     plot(T_Hist, Q_Hist, 'LineWidth', 2, 'Color', [0.8500 0.3250 0.0980]); grid on;
-    yline(Config.Impact_Limit_Q, '--r', 'Structural Limit (-3 deg/s)', 'LineWidth', 1.5); 
+    yline(-0.05, '--r', 'Structural Limit (-3 deg/s)', 'LineWidth', 1.5); 
     ylabel('Pitch Rate q (rad/s)');
     title(sprintf('Impact Severity: %.4f rad/s', Q_Hist(end)));
     
