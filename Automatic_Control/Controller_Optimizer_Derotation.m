@@ -1,84 +1,77 @@
 %% ========================================================================
-%  PROJECT: T-38 TALON FLIGHT DYNAMICS & CONTROL
-%  MODULE:  DEROTATION TUNER (NOSE GEAR LOWERING)
+%  PROJECT:       T-38 TALON FLIGHT DYNAMICS & CONTROL
+%  MODULE:        DEROTATION PHASE OPTIMIZER (NOSE GEAR LOWERING)
+%  VERSION:       2.0 (MAIN LOOP SYNCHRONIZATION)
 %  ========================================================================
-%  AUTHOR:      Kıvanç Apaydın
-%  DATE:        01/2026
-%  PLATFORM:    MATLAB R2025b
+%  AUTHOR:        Kivanc Apaydin
+%  DATE:          02/2026
+%  PLATFORM:      MATLAB R2025b
 %
 %  DESCRIPTION:
-%     This script optimizes the "Derotation" phase, which occurs immediately
-%     after main gear touchdown. The aircraft pivots around the main wheels,
-%     acting as an inverted pendulum controlled by the elevator.
+%     This script utilizes the Nelder-Mead simplex algorithm (fminsearch) 
+%     to tune the PID control gains for the aircraft derotation phase 
+%     (transition from 2-point main gear contact to 3-point contact).
 %
-%     Objective:
-%     - Lower the nose landing gear (NLG) to the runway gently.
-%     - Impact Pitch Rate (q) must be less than 3 deg/s to prevent structural
-%       damage (NLG Collapse).
-%     - Prevent "Floating": The nose must drop before aerodynamic control
-%       authority is lost due to decelerating airspeed.
+%     CRITICAL ARCHITECTURE NOTE:
+%     The simulation loop within the cost function strictly replicates the 
+%     "Integration -> Control -> Physics" execution order found in the 
+%     main flight computer. This ensures that the optimized gains provide 
+%     an identical response in the full nonlinear simulation, preventing 
+%     initial actuator saturation or "bang-bang" behavior due to large 
+%     initial errors.
 %
-%     Control Strategy (Active Damping):
-%     - The elevator is used to generate a nose-down moment for nose-down
-%     motion. The gravitational effects to the nose is ignored.
-%
-%  DEPENDENCIES:
-%     - FlightDynamics.m
-%     - RunPID.m
-%     - Derotation_Checkpoint.mat (Generated at Touchdown)
+%  PERFORMANCE OBJECTIVES:
+%     1. Soft Touchdown: Regulate nose pitch rate (q) to approx -0.03 rad/s.
+%     2. Structural Safety: Strictly prevent impact rates exceeding -0.05 rad/s.
+%     3. Transient Damping: Prevent initial elevator saturation (shock).
 % ========================================================================
 clearvars; clc; close all;
 
-%% ========================================================================
-%  1. INITIALIZATION & CONFIGURATION
-%  ========================================================================
-fprintf('----------------------------------------------------------\n');
-fprintf('>> T-38 DEROTATION TUNER (NOSE CUSHION) INITIATED.\n');
-fprintf('----------------------------------------------------------\n');
+%% 1. SYSTEM INITIALIZATION & ARTIFACT LOADING
+fprintf('==========================================================\n');
+fprintf('>> T-38 DEROTATION OPTIMIZER INITIATED (LOGIC MATCH MODE)\n');
+fprintf('==========================================================\n');
 
+% --- Load Simulation Checkpoint (Handover from Flare Phase) ---
 if ~isfile('Derotation_Checkpoint.mat')
-    error('>> ERROR: Checkpoint file "Derotation_Checkpoint.mat" not found.');
+    error('>> FATAL ERROR: Checkpoint file "Derotation_Checkpoint.mat" not found.');
 end
 load('Derotation_Checkpoint.mat', 'Checkpoint');
-fprintf('>> Checkpoint Loaded. Touchdown Time: %.2f s\n', Checkpoint.Time);
+fprintf('>> System State Loaded. Touchdown Timestamp: %.2f s\n', Checkpoint.Time);
 
-% --- TUNER TARGETS ---
-TunerConfig.Target_Theta    =  0;    % [rad] Geometric Zero
-TunerConfig.Impact_Limit_Q  = -0.04; % [rad/s] ~2.3 deg/s (Structural Limit is ~3 deg/s)
+% --- TUNER CONFIGURATION ---
+TunerConfig.Target_Theta    = 0;       % [rad] Target Pitch (Hard Zero / Ground)
+TunerConfig.Target_Q        = -0.03;   % [rad/s] Ideal Descent Rate (Soft Contact)
+TunerConfig.Structural_Lim  = -0.05;   % [rad/s] Maximum Allowable Impact Rate
 
-% --- OPTIMIZATION VECTOR ---
-% G(1): Kp (Proportional) -> Position Error Gain (Guide to 0)
-% G(2): Ki (Integral)     -> Locked to 0 (Not needed for transient event)
-% G(3): Kd (Derivative)   -> Damping Gain (The "Shock Absorber")
-InitialGains = [-0.5, 0.0, 25.0]; 
+% --- OPTIMIZATION VECTOR (INITIAL GUESS) ---
+% Strategy:
+% Kp (-0.2): Low proportional gain to handle large initial error (7 deg) 
+%            without causing immediate actuator saturation (Shock).
+% Ki (0.0) : Integral action not required for this transient phase.
+% Kd (-3.0): Negative derivative gain provides active damping against acceleration.
+InitialGains = [-0.2, 0.0, -3.0]; 
 
-% Solver Options
+% --- SOLVER SETTINGS ---
 Opts = optimset('Display', 'iter', ...
-                'MaxIter', 500, ...
-                'TolX', 1e-4, ...
-                'TolFun', 1e-4);
+                'MaxIter', 600, ...
+                'TolX', 1e-5, ...
+                'TolFun', 1e-5);
 
-%% ========================================================================
-%  2. EXECUTE OPTIMIZATION
-%  ========================================================================
-fprintf('>> Starting Optimization Loop (Objective: Soft Nose Impact)...\n');
-
+%% 2. EXECUTE OPTIMIZATION ENGINE
+fprintf('>> Optimization Engine Started. Solving for Soft Step Response...\n');
 CostFunc = @(Gains) EvaluateDerotationPerformance(Gains, Checkpoint, TunerConfig);
-
 [OptimalGains, MinCost] = fminsearch(CostFunc, InitialGains, Opts);
 
-%% ========================================================================
-%  3. REPORT RESULTS
-%  ========================================================================
+%% 3. FINAL REPORT & RESULTS
 fprintf('\n==========================================================\n');
-fprintf('OPTIMIZATION COMPLETE.\n');
-fprintf('==========================================================\n');
-fprintf('Final Cost: %.4f\n', MinCost);
+fprintf('OPTIMIZATION SUCCESSFUL.\n');
+fprintf('Final Cost Function Value: %.4f\n', MinCost);
 fprintf('----------------------------------------------------------\n');
-fprintf('DEROTATION CONTROLLER (Active Damping):\n');
-fprintf('   Kp: %8.5f \n', OptimalGains(1));
-fprintf('   Ki: %8.5f [Locked]\n', 0.0);
-fprintf('   Kd: %8.5f \n', OptimalGains(3));
+fprintf('OPTIMIZED DEROTATION GAINS:\n');
+fprintf('   Kp (Proportional): %8.5f  [Position Control]\n', OptimalGains(1));
+fprintf('   Ki (Integral)    : %8.5f  [Locked]\n', 0.0);
+fprintf('   Kd (Derivative)  : %8.5f  [Active Damping]\n', OptimalGains(3));
 fprintf('==========================================================\n');
 
 VisualizeResult(OptimalGains, Checkpoint, TunerConfig);
@@ -87,160 +80,178 @@ VisualizeResult(OptimalGains, Checkpoint, TunerConfig);
 %  LOCAL FUNCTION: COST FUNCTION EVALUATION
 %  ========================================================================
 function J = EvaluateDerotationPerformance(Gains, CP, Config)
-
-    % --- 1. SETUP CONTROLLER ---
-    C.Kp  = Gains(1); 
-    C.Ki  = 0;          % Integrator not useful for this short dynamic event
-    C.Kd  = Gains(3);
+    % 1. Controller Configuration
+    C.Kp = Gains(1); 
+    C.Ki = 0; 
+    C.Kd = Gains(3);
     
-    % Authority Limits
-    C.Max = deg2rad(20);  
-    C.Min = -deg2rad(20); 
+    % Actuator Physical Limits (T-38 Stabilator)
+    C.Max = deg2rad(15); 
+    C.Min = -deg2rad(15); 
     
-    % --- 2. SIMULATION SETUP ---
+    % 2. Simulation Initialization
     State = CP.StateVector; AC = CP.AC; Env = CP.Env; dt = CP.dt;
     PIDState = struct('Integrator', 0, 'PrevError', 0);
     
-    % Configuration for Ground Roll
-    Controls = struct('ElevatorDeflection', 0, ...
-                      'ThrottleSetting',    0.0, ... % Idle
-                      'Gear',               1.0, ... % Down
-                      'SpeedBrake',         1.0);    % Deployed (Max Drag)
+    % [CRITICAL] Pre-calculate Derivatives (Simulating the t-1 state)
+    % This is required to start the loop with the "Integration First" step.
+    Controls = CP.LastControls;
+    InitialLog = FlightDynamics(State, AC, Env, Controls);
+    Derv = InitialLog.Derivatives;
     
     Step = 0; 
-    MaxSteps = 600; % Time-out limit
+    MaxSteps = 800; 
+    Total_Cost = 0;
     
-    Total_Tracking_Error = 0;
-    Saturation_Penalty   = 0;
-    
-    % --- 3. PHYSICS LOOP (PIVOT DYNAMICS) ---
-    % Run until Nose Gear touches ground (Theta <= 0)
+    % 3. PHYSICS SIMULATION LOOP (Matches Main Code Architecture)
+    % Order: Integration -> Kinematics -> Control -> Physics
     while State.theta > 0 && Step < MaxSteps
         Step = Step + 1;
         
-        % [Sensors]
-        [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
-        
-        % [Control Law]
-        [Delta_Cmd, PIDState] = RunPID(Config.Target_Theta, State.theta, dt, ...
-                                       C, PIDState, State.q);
-        Controls.ElevatorDeflection = Delta_Cmd;
-        
-        % [Physics]
-        Log = FlightDynamics(State, AC, Env, Controls);
-        Derv = Log.Derivatives;
-        
-        % [Integration - Ground Constraints]
-        State.x_E   = State.x_E   + Derv.x_dot_E * dt;
-        
-        % CONSTRAINT: Main Gear is pivot point. z_E locked to 0.
-        State.z_E   = 0; 
-        
-        % Deceleration
+        % A. NUMERICAL INTEGRATION (Euler Method)
+        % Updates state based on forces calculated in the PREVIOUS step.
         State.u     = State.u     + Derv.u_dot * dt;
-        
-        % Rotational Dynamics (The Inverted Pendulum)
-        State.theta = State.theta + Derv.theta_dot * dt;
-        State.q     = State.q     + Derv.q_dot * dt;
-        State.m     = State.m     + Derv.m_dot * dt;
-        
-        % Update Velocity Vector based on Geometry
-        V_ground = sqrt(State.u^2); 
-        State.u  = V_ground * cos(State.theta);
-        State.w  = V_ground * sin(State.theta); % Induced vertical velocity at CG
-        
-        % --- COST ACCUMULATION ---
-        % 1. Tracking Error (Guide to 0)
-        Total_Tracking_Error = Total_Tracking_Error + abs(State.theta - 0); 
-        
-        % 2. Actuator Saturation (Smoothness)
-        if abs(Delta_Cmd) >= (deg2rad(20) - 0.01)
-            Saturation_Penalty = Saturation_Penalty + 10; 
-        end
-    end
-    
-    % --- 4. IMPACT ANALYSIS (THE SLAM BARRIER) ---
-    Impact_Q = State.q; % Pitch rate at the moment of contact [rad/s]
-    
-    Slam_Penalty = 0;
-    % CONSTRAINT: Impact Pitch Rate must be > -0.05 rad/s (-3 deg/s)
-    % Note: Q is negative when pitching down.
-    if Impact_Q < Config.Impact_Limit_Q
-        % Penalty for breaking the nose gear
-        Slam_Penalty = 2e6 * abs(Impact_Q - Config.Impact_Limit_Q);
-    end
-    
-    % Timeout Penalty (Floating Nose)
-    Time_Penalty = 0;
-    if Step >= MaxSteps
-        Time_Penalty = 10000; 
-    end
-    
-    J = Total_Tracking_Error + Saturation_Penalty + Slam_Penalty + Time_Penalty;
-end
-
-%% ========================================================================
-%  LOCAL FUNCTION: VISUALIZATION
-%  ========================================================================
-function VisualizeResult(Gains, CP, Config)
-    fprintf('>> Generating Visualization...\n');
-    
-    % Reconstruct Controller
-    C.Kp = Gains(1); C.Ki = 0; C.Kd = Gains(3);
-    C.Max = deg2rad(20); C.Min = -deg2rad(20); 
-    
-    State = CP.StateVector; AC = CP.AC; Env = CP.Env; dt = CP.dt;
-    PIDState = struct('Integrator', 0, 'PrevError', 0);
-    Controls = struct('ElevatorDeflection',0,'ThrottleSetting',0.0,'Gear',1.0,'SpeedBrake',1.0);
-    
-    T_Hist = []; Theta_Hist = []; Q_Hist = []; Elev_Hist = [];
-    Step = 0;
-    
-    % Re-Simulate
-    while State.theta > 0 && Step < 600
-        Step = Step + 1;
-        [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
-        
-        [Delta_Cmd, PIDState] = RunPID(Config.Target_Theta, State.theta, dt, C, PIDState, State.q);
-        Controls.ElevatorDeflection = Delta_Cmd;
-        
-        Log = FlightDynamics(State, AC, Env, Controls); Derv = Log.Derivatives;
-        
+        State.w     = State.w     + Derv.w_dot * dt;
         State.x_E   = State.x_E   + Derv.x_dot_E * dt;
-        State.z_E   = 0; 
-        State.u     = State.u     + Derv.u_dot * dt;
-        State.theta = State.theta + Derv.theta_dot * dt;
+        State.z_E   = State.z_E   + Derv.z_dot_E * dt;
         State.q     = State.q     + Derv.q_dot * dt;
+        State.theta = State.theta + Derv.theta_dot * dt;
         
-        V_ground = sqrt(State.u^2);
+        % Kinematics Override (Pivot around Main Landing Gear)
+        % Enforces the geometric constraint that the MLG is fixed to the ground.
+        V_ground = sqrt(State.u^2 + State.w^2);
         State.u  = V_ground * cos(State.theta);
         State.w  = V_ground * sin(State.theta);
         
-        T_Hist(Step)     = Step*dt;
+        % Ground Collision Constraint
+        if State.z_E > 0, State.z_E = 0; State.w = 0; end
+        
+        % B. ENVIRONMENT UPDATE
+        [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
+        
+        % C. CONTROL LAW EXECUTION
+        % Calculates command based on the NEW position (t)
+        [Delta_Cmd, PIDState] = RunPID(Config.Target_Theta, State.theta, dt, ...
+                                       C, PIDState, State.q);
+        
+        Controls.ElevatorDeflection = Delta_Cmd;
+        Controls.ThrottleSetting    = 0.0; % Idle
+        Controls.SpeedBrake         = 1.0; % Full Drag
+        Controls.Gear               = 1.0; % Down
+        
+        % D. FLIGHT DYNAMICS
+        % Calculates forces/moments for the NEXT step (t+1)
+        Log = FlightDynamics(State, AC, Env, Controls);
+        Derv = Log.Derivatives;
+        
+        % --- COST CALCULATION ---
+        
+        % 1. Actuator Saturation Penalty (SHOCK ABSORBER)
+        % If the elevator deflects >12 deg within the first 0.5s (50 steps),
+        % apply a massive penalty. This forces a "Soft Start".
+        if Step < 50 && abs(Delta_Cmd) > deg2rad(12)
+            Total_Cost = Total_Cost + 1e7; 
+        end
+        
+        % 2. Velocity Tracking (Target: -0.03 rad/s)
+        Rate_Error = abs(State.q - Config.Target_Q);
+        Total_Cost = Total_Cost + (Rate_Error^2 * 5000);
+        
+        % 3. Safety Limit Violation (Hard Constraint)
+        if State.q < Config.Structural_Lim
+             Violation = abs(State.q - Config.Structural_Lim);
+             Total_Cost = Total_Cost + (Violation * 1e9);
+        end
+    end
+    
+    % --- FINAL EVALUATION ---
+    if State.theta > 0
+        Total_Cost = Total_Cost + 1e9; % Penalty: Failed to land (Timeout)
+    else
+        % Touchdown Analysis
+        if State.q < Config.Structural_Lim
+            Total_Cost = Total_Cost + 1e9; % Penalty: Structural Damage (Crash)
+        else
+            % Bonus: Precision Landing
+            Final_Error = abs(State.q - Config.Target_Q);
+            Total_Cost = Total_Cost - (1 / (Final_Error + 1e-4));
+        end
+    end
+    J = Total_Cost;
+end
+
+%% ========================================================================
+%  LOCAL FUNCTION: PERFORMANCE VISUALIZATION
+%  ========================================================================
+function VisualizeResult(Gains, CP, Config)
+    fprintf('>> Generating Engineering Plots...\n');
+    
+    % Reconstruct Controller
+    C.Kp = Gains(1); C.Ki = 0; C.Kd = Gains(3);
+    C.Max = deg2rad(15); C.Min = -deg2rad(15); 
+    
+    % Simulation Init
+    State = CP.StateVector; AC = CP.AC; Env = CP.Env; dt = CP.dt;
+    PIDState = struct('Integrator', 0, 'PrevError', 0);
+    
+    Controls = CP.LastControls;
+    InitialLog = FlightDynamics(State, AC, Env, Controls);
+    Derv = InitialLog.Derivatives;
+    
+    % Data Logging
+    T_Hist = []; Theta_Hist = []; Q_Hist = []; Elev_Hist = [];
+    Step = 0;
+    
+    % Verification Loop
+    while State.theta > 0 && Step < 800
+        Step = Step + 1;
+        
+        % Integration
+        State.u = State.u + Derv.u_dot*dt; State.w = State.w + Derv.w_dot*dt;
+        State.theta = State.theta + Derv.theta_dot*dt; State.q = State.q + Derv.q_dot*dt;
+        
+        % Kinematics
+        V_ground = sqrt(State.u^2 + State.w^2);
+        State.u = V_ground * cos(State.theta); State.w = V_ground * sin(State.theta);
+        if State.z_E > 0, State.z_E = 0; end
+        
+        % Env
+        [~, Env.a, ~, Env.rho] = atmosisa(-State.z_E);
+        
+        % Control
+        [Delta_Cmd, PIDState] = RunPID(Config.Target_Theta, State.theta, dt, C, PIDState, State.q);
+        Controls.ElevatorDeflection = Delta_Cmd;
+        
+        % Physics
+        Log = FlightDynamics(State, AC, Env, Controls);
+        Derv = Log.Derivatives;
+        
+        % Store Data
+        T_Hist(Step) = Step*dt; 
         Theta_Hist(Step) = rad2deg(State.theta);
-        Q_Hist(Step)     = State.q;
-        Elev_Hist(Step)  = rad2deg(Delta_Cmd);
+        Q_Hist(Step) = State.q; 
+        Elev_Hist(Step) = rad2deg(Delta_Cmd);
     end
     
     % --- PLOTTING ---
-    figure('Color','w', 'Name', 'Derotation Analysis');
+    figure('Color','w', 'Name', 'Derotation Analysis (Main Logic Match)');
     
-    
-    % 1. Pitch Attitude
+    % Subplot 1: Pitch Attitude
     subplot(3,1,1); 
-    plot(T_Hist, Theta_Hist, 'LineWidth', 2, 'Color', [0 0.4470 0.7410]); grid on;
-    ylabel('Pitch (deg)'); title('Nose Drop Trajectory');
+    plot(T_Hist, Theta_Hist, 'LineWidth', 2, 'Color', [0 0.4470 0.7410]); 
+    grid on; ylabel('Theta (deg)'); title('Nose Drop Trajectory');
     
-    % 2. Pitch Rate (Impact Force)
+    % Subplot 2: Pitch Rate
     subplot(3,1,2); 
-    plot(T_Hist, Q_Hist, 'LineWidth', 2, 'Color', [0.8500 0.3250 0.0980]); grid on;
-    yline(-0.05, '--r', 'Structural Limit (-3 deg/s)', 'LineWidth', 1.5); 
-    ylabel('Pitch Rate q (rad/s)');
-    title(sprintf('Impact Severity: %.4f rad/s', Q_Hist(end)));
+    plot(T_Hist, Q_Hist, 'LineWidth', 2, 'Color', [0.8500 0.3250 0.0980]); 
+    grid on; ylabel('q (rad/s)'); 
+    yline(Config.Structural_Lim, '--r', 'LineWidth', 1.5); 
+    yline(Config.Target_Q, '--g', 'LineWidth', 1.5); 
+    title('Pitch Rate vs. Limits');
     
-    % 3. Elevator (The "Cushion")
+    % Subplot 3: Control Effort
     subplot(3,1,3); 
-    plot(T_Hist, Elev_Hist, 'LineWidth', 1.5, 'Color', [0.9290 0.6940 0.1250]); grid on;
-    ylabel('Elevator (deg)'); xlabel('Time (s)');
-    title('Active Damping Control Input');
+    plot(T_Hist, Elev_Hist, 'LineWidth', 2, 'Color', [0.9290 0.6940 0.1250]); 
+    grid on; ylabel('Elevator (deg)'); xlabel('Time (s)');
+    title('Control Surface Deflection');
 end
