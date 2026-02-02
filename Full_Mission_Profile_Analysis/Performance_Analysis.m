@@ -574,13 +574,13 @@ fprintf('>> Checkpoint saved to "Approach_Checkpoint.mat" (t = %.2f s)\n', time(
 % -------------------------------------------------------------------------
 fprintf('Phase 08: Constrained Approach (Gamma -7 / Max Alpha 12)...\n');
 dt = 0.01; 
-Handoff_Height = 30; % [m] Transition to Flare
+Handoff_Height = 15; % [m] Transition to Flare
 
 % --- CONTROLLER CONFIGURATION ---
 % [A] GAMMA CONTROLLER (Outer Loop)
-ControlConfig.Gamma.Kp   = 0.516779;
-ControlConfig.Gamma.Ki   = 0.037596;
-ControlConfig.Gamma.Kd   = 0.385513;
+ControlConfig.Gamma.Kp =  21.375;
+ControlConfig.Gamma.Ki =  0.805;
+ControlConfig.Gamma.Kd =  -0.975;
 ControlConfig.Gamma.Max  = deg2rad(5.0); 
 ControlConfig.Gamma.Min  = deg2rad(-10.0);
 
@@ -588,8 +588,8 @@ ControlConfig.Gamma.Min  = deg2rad(-10.0);
 ControlConfig.Pitch.Kp = -35.0134;
 ControlConfig.Pitch.Ki =  0.0245;
 ControlConfig.Pitch.Kd =  24.3466;  
-ControlConfig.Pitch.Max = deg2rad(20);
-ControlConfig.Pitch.Min = -deg2rad(20);
+ControlConfig.Pitch.Max = deg2rad(15);
+ControlConfig.Pitch.Min = -deg2rad(15);
 
 % --- STATE INITIALIZATION ---
 PitchState = struct('Integrator', 0, 'PrevError', 0);
@@ -617,7 +617,7 @@ while -z_E(i) > Handoff_Height
     current_w     = w(i+1);
     current_theta = theta(i+1); 
     current_q     = q(i+1);
-    current_alpha = atan2(-current_w, current_u);
+    current_alpha = atan2(current_w, current_u);
     current_gamma = current_theta - current_alpha;
     Alpha_Deg     = rad2deg(current_alpha);
 
@@ -678,28 +678,28 @@ fprintf('Phase 09: Precision Flare...\n');
 
 % --- CONTROLLER CONFIGURATION ---
 % [A] THROTTLE CONTROLLER (Sink Rate)
-ControlConfig.Throttle.Kp   = 0.0592;
-ControlConfig.Throttle.Ki   = 0.0085;
-ControlConfig.Throttle.Kd   = 0.0147;
-ControlConfig.Throttle.Base =  0.5138; 
-ControlConfig.Throttle.Max  =  1.0;
-ControlConfig.Throttle.Min  =  0.0;
+ControlConfig.Throttle.Kp   = 0.1932;
+ControlConfig.Throttle.Ki   = 0.0119;
+ControlConfig.Throttle.Kd   = 0.0197;
+ControlConfig.Throttle.Base = 0.5010; 
+ControlConfig.Throttle.Max  = 1.0;
+ControlConfig.Throttle.Min  = 0.0;
 
 % [B] PITCH CONTROLLER (Inner Loop)
-ControlConfig.Pitch.Kp  = -4.5945;
-ControlConfig.Pitch.Ki  =  0.0226; 
-ControlConfig.Pitch.Kd  =  14.2681;   
-ControlConfig.Pitch.Max =  deg2rad(20);
-ControlConfig.Pitch.Min = -deg2rad(20);
+ControlConfig.Pitch.Kp  = -20.8858;
+ControlConfig.Pitch.Ki  =  0.0084; 
+ControlConfig.Pitch.Kd  =  0.0587;   
+ControlConfig.Pitch.Max =  deg2rad(15);
+ControlConfig.Pitch.Min = -deg2rad(15);
 
 % --- STATE & TARGETS ---
 PitchState = struct('Integrator', 0, 'PrevError', 0);
 ThrotState = struct('Integrator', 0, 'PrevError', 0); 
-Target_Theta    = deg2rad(6.5);  % Landing Attitude
+Target_Theta    = deg2rad(7);  % Landing Attitude
 Target_SinkRate = -0.6;          % [m/s] 
 
 % --- SIMULATION LOOP ---
-while -z_E(i) > 0.1
+while -z_E(i) >= 0.0
     % [Integration]
     Derv = SimLog(i).Derivatives;
     u(i+1)     = u(i)     + Derv.u_dot * dt;
@@ -716,7 +716,7 @@ while -z_E(i) > 0.1
     Env.rho = rho(i+1); Env.a = a(i+1);
 
     Current_Alt      = -z_E(i+1);
-    Current_SinkRate = -Derv.z_dot_E;
+    Current_SinkRate = -w(i+1) * cos(theta(i+1)) + u(i+1) * sin(theta(i+1));
     current_theta    = theta(i+1); 
     current_q        = q(i+1);
 
@@ -771,6 +771,8 @@ Checkpoint.Env  = Env;
 Checkpoint.Time = time(i);
 Checkpoint.dt   = 0.01; 
 
+Checkpoint.LastControls = Controls;
+
 save('Derotation_Checkpoint.mat', 'Checkpoint');
 fprintf('>> Checkpoint saved to "Derotation_Checkpoint.mat" (t = %.2f s)\n', time(i));
 
@@ -784,11 +786,11 @@ fprintf('Phase 10: Derotation (Nose Lowering)...\n');
 z_E(i) = 0;
 % --- CONFIGURATION ---
 Target_Derot_Theta      =  0;
-ControlConfig.Derot.Kp  = -3.26077;             
+ControlConfig.Derot.Kp  = -0.26071;             
 ControlConfig.Derot.Ki  =  0.0;             
-ControlConfig.Derot.Kd  =  2.78721 ;             
-ControlConfig.Derot.Max =  deg2rad(20);     
-ControlConfig.Derot.Min = -deg2rad(20);     
+ControlConfig.Derot.Kd  =  1.24289;             
+ControlConfig.Derot.Max =  deg2rad(15);     
+ControlConfig.Derot.Min = -deg2rad(15);     
 
 DerotState = struct('Integrator', 0, 'PrevError', 0);
 
