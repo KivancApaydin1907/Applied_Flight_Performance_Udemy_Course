@@ -154,7 +154,7 @@ function J = EvaluateFlarePerformance(Gains, CP, Config)
         % Weights prioritized: Pitch Geometry > Sink Rate > Smoothness
         
         % A. Sink Rate Error
-        Sink_Err = (Derv.z_dot_E - Config.Targets.SinkRate)^2;
+        Sink_Err = (-Derv.z_dot_E - Config.Targets.SinkRate)^2;
         Sink_Penalty = Sink_Err * 20000;
         if Derv.z_dot_E < Config.Limits.SinkRate_Hard, Sink_Penalty = 1e12; end % Crash Penalty
         
@@ -290,3 +290,4 @@ function VisualizePerformance(Gains, CP, Config)
     xlabel('Simulation Steps (dt = 0.01s)');
     title('Angle of Attack Stability', 'FontSize', 11);
 end
+
