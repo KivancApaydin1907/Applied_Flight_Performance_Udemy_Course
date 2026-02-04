@@ -1,7 +1,6 @@
 %% ========================================================================
 %  PROJECT:       T-38 TALON FLIGHT DYNAMICS & CONTROL
 %  MODULE:        DEROTATION PHASE OPTIMIZER (NOSE GEAR LOWERING)
-%  VERSION:       2.0 (MAIN LOOP SYNCHRONIZATION)
 %  ========================================================================
 %  AUTHOR:        Kivanc Apaydin
 %  DATE:          02/2026
@@ -11,14 +10,6 @@
 %     This script utilizes the Nelder-Mead simplex algorithm (fminsearch) 
 %     to tune the PID control gains for the aircraft derotation phase 
 %     (transition from 2-point main gear contact to 3-point contact).
-%
-%     CRITICAL ARCHITECTURE NOTE:
-%     The simulation loop within the cost function strictly replicates the 
-%     "Integration -> Control -> Physics" execution order found in the 
-%     main flight computer. This ensures that the optimized gains provide 
-%     an identical response in the full nonlinear simulation, preventing 
-%     initial actuator saturation or "bang-bang" behavior due to large 
-%     initial errors.
 %
 %  PERFORMANCE OBJECTIVES:
 %     1. Soft Touchdown: Regulate nose pitch rate (q) to approx -0.03 rad/s.
@@ -255,3 +246,4 @@ function VisualizeResult(Gains, CP, Config)
     grid on; ylabel('Elevator (deg)'); xlabel('Time (s)');
     title('Control Surface Deflection');
 end
+
