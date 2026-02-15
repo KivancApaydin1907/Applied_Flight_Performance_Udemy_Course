@@ -97,7 +97,7 @@ To run the full mission simulation on your local machine:
 ## 👨‍💻 Author & Instructor
 
 **Kıvanç Apaydın**
-*Aeronautical Engineer | Simulation Developer*
+*Aeronautical Engineer | Flight Physics*
 * [LinkedIn Profile](https://www.linkedin.com/in/k%C4%B1van%C3%A7-apayd%C4%B1n-3a53a8259/)
 
 ---
