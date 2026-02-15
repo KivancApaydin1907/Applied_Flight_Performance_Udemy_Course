@@ -98,8 +98,7 @@ To run the full mission simulation on your local machine:
 
 **Kıvanç Apaydın**
 *Aeronautical Engineer | Simulation Developer*
-
-* [LinkedIn Profile]([www.linkedin.com/in/kıvanç-apaydın-3a53a8259](https://www.linkedin.com/in/k%C4%B1van%C3%A7-apayd%C4%B1n-3a53a8259/))
+* [LinkedIn Profile](https://www.linkedin.com/in/k%C4%B1van%C3%A7-apayd%C4%B1n-3a53a8259/)
 
 ---
 
